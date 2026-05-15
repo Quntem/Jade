@@ -16,6 +16,7 @@
       "dependencies": {
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "dockview-react": "^6.2.2",
         "lucide-react": "^1.16.0",
         "next": "16.2.6",
         "radix-ui": "^1.4.3",
@@ -694,6 +695,12 @@
     "detect-node-es": ["detect-node-es@1.1.0", "", {}, "sha512-ypdmJU/TbBby2Dxibuv7ZLW3Bs1QEmM7nHjEANfohJLvE0XVujisn1qPJcZxg+qDucsr+bP6fLD1rPS3AhJ7EQ=="],
 
     "diff": ["diff@8.0.4", "", {}, "sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw=="],
+
+    "dockview": ["dockview@6.2.2", "", { "dependencies": { "dockview-core": "^6.2.2" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-Ydc1/gINOsnkumzkKOHqlViS6Z4nbq6zuozOYz7mRWOLr1nw49MGul8SHUD2fxXfwk2oABd8zGNdA2J+x+sKpQ=="],
+
+    "dockview-core": ["dockview-core@6.2.2", "", {}, "sha512-n/ZfgbLB0k9u8dyWlHg1G/GAfWkFowd+0PtfVyo6O/SCkAbBZgQA+VxA3gZc1BuBmZNIHWocbbX43WsGjDUJrA=="],
+
+    "dockview-react": ["dockview-react@6.2.2", "", { "dependencies": { "dockview": "^6.2.2" } }, "sha512-PFhk+CfXj3lBR+M4wRrYXfHV+wvk4nXJlWSCP8pZF0hw8VX18ZyK9M1/MzAiF5gMOcediwGWA8uqV0NYMw5RtA=="],
 
     "doctrine": ["doctrine@2.1.0", "", { "dependencies": { "esutils": "^2.0.2" } }, "sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw=="],
 
