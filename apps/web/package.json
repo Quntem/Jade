@@ -1,0 +1,17 @@
+{
+  "name": "@jade/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "dev": "bun --watch src/index.ts",
+    "lint": "bun x tsc --noEmit",
+    "typecheck": "bun x tsc --noEmit"
+  },
+  "dependencies": {
+    "@jade/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
