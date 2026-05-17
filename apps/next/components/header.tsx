@@ -170,6 +170,7 @@ export function ScopeSwitcher() {
     const scopes = useScopes(Boolean(sessionCookieReady && authState?.loaded && !authState.error));
     const [switcherOpen, setSwitcherOpen] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
+    const [scopeSearch, setScopeSearch] = useState("");
 
     const selectedScope = useMemo(
         () => scopes.data?.find((item) => item.id === scope) ?? null,
@@ -182,10 +183,61 @@ export function ScopeSwitcher() {
         scopes.loaded && !scopes.error && (!scope || !selectedScope)
     );
 
-    const roots = useMemo(() => {
+    const filteredScopes = useMemo(() => {
         const items = scopes.data ?? [];
-        return items.filter((item) => !item.parentId);
-    }, [scopes.data]);
+        const query = scopeSearch.trim().toLowerCase();
+
+        if (!query) {
+            return items;
+        }
+
+        const byId = new Map(items.map((item) => [item.id, item]));
+        const childIdsByParentId = new Map<string, string[]>();
+
+        for (const item of items) {
+            if (!item.parentId) {
+                continue;
+            }
+
+            childIdsByParentId.set(item.parentId, [
+                ...(childIdsByParentId.get(item.parentId) ?? []),
+                item.id,
+            ]);
+        }
+
+        const visibleIds = new Set<string>();
+        const markAncestors = (item: Scope) => {
+            let current: Scope | undefined = item;
+
+            while (current) {
+                visibleIds.add(current.id);
+                current = current.parentId ? byId.get(current.parentId) : undefined;
+            }
+        };
+        const markDescendants = (item: Scope) => {
+            for (const childId of childIdsByParentId.get(item.id) ?? []) {
+                visibleIds.add(childId);
+                const child = byId.get(childId);
+
+                if (child) {
+                    markDescendants(child);
+                }
+            }
+        };
+
+        for (const item of items) {
+            if (matchesScopeSearch(item, items, query)) {
+                markAncestors(item);
+                markDescendants(item);
+            }
+        }
+
+        return items.filter((item) => visibleIds.has(item.id));
+    }, [scopeSearch, scopes.data]);
+
+    const roots = useMemo(() => {
+        return filteredScopes.filter((item) => !item.parentId);
+    }, [filteredScopes]);
 
     useEffect(() => {
         if (!scopeSelectionRequired) {
@@ -231,6 +283,17 @@ export function ScopeSwitcher() {
                     </DialogDescription>
                 </DialogHeader>
 
+                <div className="relative">
+                    <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                        value={scopeSearch}
+                        onChange={(event) => setScopeSearch(event.target.value)}
+                        placeholder="Search scopes..."
+                        aria-label="Search scopes"
+                        className="pl-8"
+                    />
+                </div>
+
                 <div className="max-h-[360px] overflow-auto rounded-lg border bg-background p-1" role="tree" aria-label="Scopes">
                     {!scopes.loaded && (
                         <div className="px-3 py-2 text-sm text-muted-foreground">Loading scopes...</div>
@@ -238,15 +301,19 @@ export function ScopeSwitcher() {
                     {scopes.loaded && scopes.error && (
                         <div className="px-3 py-2 text-sm text-destructive">{scopes.error.message}</div>
                     )}
-                    {scopes.loaded && !scopes.error && roots.length === 0 && (
+                    {scopes.loaded && !scopes.error && (scopes.data ?? []).length === 0 && (
                         <div className="px-3 py-2 text-sm text-muted-foreground">No scopes yet.</div>
+                    )}
+                    {scopes.loaded && !scopes.error && (scopes.data ?? []).length > 0 && roots.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No scopes match your search.</div>
                     )}
                     {roots.map((item) => (
                         <ScopeTreeItem
                             key={item.id}
                             scope={item}
-                            scopes={scopes.data ?? []}
+                            scopes={filteredScopes}
                             selectedScopeId={scope}
+                            forceExpanded={scopeSearch.trim().length > 0}
                             onSelect={(scopeId) => {
                                 setScope(scopeId);
                                 setSwitcherOpen(false);
@@ -288,23 +355,26 @@ function ScopeTreeItem({
     scopes,
     selectedScopeId,
     onSelect,
+    forceExpanded = false,
     level = 0,
 }: {
     scope: Scope;
     scopes: Scope[];
     selectedScopeId: string | null;
     onSelect: (scope: string | null) => void;
+    forceExpanded?: boolean;
     level?: number;
 }) {
     const children = scopes.filter((item) => item.parentId === scope.id);
     const [expanded, setExpanded] = useState(true);
+    const renderedExpanded = forceExpanded || expanded;
     const isSelected = selectedScopeId === scope.id;
 
     return (
         <div role="none">
             <div
                 role="treeitem"
-                aria-expanded={children.length > 0 ? expanded : undefined}
+                aria-expanded={children.length > 0 ? renderedExpanded : undefined}
                 aria-selected={isSelected}
                 className="flex items-center gap-1 rounded-sm px-1 py-0.5 text-sm hover:bg-accent"
                 style={{ paddingLeft: `${level * 18 + 4}px` }}
@@ -316,10 +386,10 @@ function ScopeTreeItem({
                     className="size-5"
                     onClick={() => setExpanded((value) => !value)}
                     disabled={children.length === 0}
-                    aria-label={expanded ? "Collapse scope" : "Expand scope"}
+                    aria-label={renderedExpanded ? "Collapse scope" : "Expand scope"}
                 >
                     {children.length > 0 && (
-                        <ChevronRightIcon className={expanded ? "rotate-90 transition-transform" : "transition-transform"} />
+                        <ChevronRightIcon className={renderedExpanded ? "rotate-90 transition-transform" : "transition-transform"} />
                     )}
                 </Button>
                 <button
@@ -332,7 +402,7 @@ function ScopeTreeItem({
                     <span className="ml-auto shrink-0 text-xs text-muted-foreground">{scope.type}</span>
                 </button>
             </div>
-            {expanded && children.length > 0 && (
+            {renderedExpanded && children.length > 0 && (
                 <div role="group">
                     {children.map((child) => (
                         <ScopeTreeItem
@@ -341,6 +411,7 @@ function ScopeTreeItem({
                             scopes={scopes}
                             selectedScopeId={selectedScopeId}
                             onSelect={onSelect}
+                            forceExpanded={forceExpanded}
                             level={level + 1}
                         />
                     ))}
@@ -362,6 +433,16 @@ function getScopeDisplayName(scope: Scope, scopes: Scope[]) {
     }
 
     return `${parentScope.name} / ${scope.name}`;
+}
+
+function matchesScopeSearch(scope: Scope, scopes: Scope[], query: string) {
+    const displayName = getScopeDisplayName(scope, scopes);
+
+    return (
+        scope.name.toLowerCase().includes(query) ||
+        scope.type.toLowerCase().includes(query) ||
+        displayName.toLowerCase().includes(query)
+    );
 }
 
 function ScopeTypeIcon({
@@ -405,12 +486,20 @@ function CreateScopeDialog({
     const [parentId, setParentId] = useState<string>(selectedScopeId ?? "");
     const [error, setError] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
+    const defaultParentId = useMemo(
+        () => scopes.find((scope) => scope.type === "Organization")?.id ?? scopes[0]?.id ?? "",
+        [scopes]
+    );
+    const initialParentId = useMemo(
+        () => scopes.some((scope) => scope.id === selectedScopeId) ? selectedScopeId ?? defaultParentId : defaultParentId,
+        [defaultParentId, scopes, selectedScopeId]
+    );
 
     useEffect(() => {
         if (open) {
-            setParentId(selectedScopeId ?? "");
+            setParentId(initialParentId);
         }
-    }, [open, selectedScopeId]);
+    }, [initialParentId, open]);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -422,7 +511,7 @@ function CreateScopeDialog({
                 name,
                 description: description || null,
                 type,
-                parentId: parentId || null,
+                parentId,
             });
             setName("");
             setDescription("");
@@ -438,7 +527,7 @@ function CreateScopeDialog({
 
     return (
         <Dialog open={open} onOpenChange={(nextOpen) => {
-            setParentId(selectedScopeId ?? "");
+            setParentId(initialParentId);
             onOpenChange(nextOpen);
         }}>
             <DialogContent>
@@ -487,9 +576,9 @@ function CreateScopeDialog({
                                 id="scope-parent"
                                 value={parentId}
                                 onChange={(event) => setParentId(event.target.value)}
+                                required
                                 className="border-input bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/50 flex h-8 w-full rounded-lg border px-2.5 py-1 text-sm outline-none focus-visible:ring-3"
                             >
-                                <option value="">No parent</option>
                                 {scopes.map((scope) => (
                                     <option key={scope.id} value={scope.id}>{scope.name}</option>
                                 ))}
@@ -508,7 +597,7 @@ function CreateScopeDialog({
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={creating}>
+                        <Button type="submit" disabled={creating || !parentId}>
                             {creating ? "Creating..." : "Create"}
                         </Button>
                     </DialogFooter>

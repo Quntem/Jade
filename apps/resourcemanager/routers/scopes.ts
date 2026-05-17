@@ -2,7 +2,7 @@ import express from "express";
 
 const router = express.Router();
 
-import { getScopes, createScope, getScopeById, ensureTenantOrganizationScope, ensureUserScope } from "../functions/scopes";
+import { getScopes, createScope, getScopeById, ensureTenantOrganizationScope, ensureUserScope, isDescendantOfScope } from "../functions/scopes";
 import { VerifySession } from "keystone-lib";
 import type { Request, Response } from "express";
 
@@ -81,9 +81,10 @@ router.get("/", async (req, res) => {
   const session = await getSession(req, res);
   if (!session) return;
 
-  await ensureDefaultScopes(session);
+  const { tenantOrganization } = await ensureDefaultScopes(session);
   const scopes = await getScopes({
     ownerIds: visibleScopeOwnerIds(session),
+    tenantOrganizationId: tenantOrganization.id,
   });
 
   res.json(scopes);
@@ -93,10 +94,11 @@ router.get("/id/:id", async (req, res) => {
   const session = await getSession(req, res);
   if (!session) return;
 
-  await ensureDefaultScopes(session);
+  const { tenantOrganization } = await ensureDefaultScopes(session);
   const scope = await getScopeById({
     id: req.params.id as string,
     ownerIds: visibleScopeOwnerIds(session),
+    tenantOrganizationId: tenantOrganization.id,
   });
 
   if (!scope) {
@@ -112,6 +114,15 @@ router.post("/", async (req, res) => {
   if (!session) return;
   const { tenantOrganization, userScope } = await ensureDefaultScopes(session);
   const type = req.body.type;
+  const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+  const description =
+    typeof req.body.description === "string" && req.body.description.trim().length > 0
+      ? req.body.description.trim()
+      : null;
+  const requestedParentId =
+    typeof req.body.parentId === "string" && req.body.parentId.trim().length > 0
+      ? req.body.parentId.trim()
+      : tenantOrganization.id;
   const isOrganization = type === "Organization";
   const isUser = type === "User";
 
@@ -125,12 +136,35 @@ router.post("/", async (req, res) => {
     return;
   }
 
+  if (!name) {
+    res.status(400).json({ error: "Scope name is required" });
+    return;
+  }
+
+  const parentScope = await getScopeById({
+    id: requestedParentId,
+    ownerIds: visibleScopeOwnerIds(session),
+    tenantOrganizationId: tenantOrganization.id,
+  });
+
+  if (!parentScope) {
+    res.status(400).json({ error: "Parent scope not found" });
+    return;
+  }
+
+  const parentIsInOrganizationTree =
+    parentScope.id === tenantOrganization.id ||
+    (await isDescendantOfScope({
+      scope: parentScope,
+      ancestorId: tenantOrganization.id,
+    }));
+
   const scope = await createScope({
-    ownerId: session.user.id,
-    name: req.body.name,
-    description: req.body.description,
+    ownerId: parentIsInOrganizationTree ? session.tenant.id : session.user.id,
+    name,
+    description,
     type,
-    parentId: req.body.parentId ?? tenantOrganization.id,
+    parentId: parentScope.id,
   });
   res.json(scope);
 });

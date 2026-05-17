@@ -1,8 +1,16 @@
 import { prismaClient } from "@jade/database";
+import type { ResourceScope } from "../../../packages/database/src/generated/prisma/client";
 import type { ScopeType } from "../../../packages/database/src/generated/prisma/enums";
 
-export async function getScopes({ ownerIds }: { ownerIds: string[] }) {
-  return await prismaClient.resourceScope.findMany({
+export async function getScopes({
+  ownerIds,
+  tenantOrganizationId,
+}: {
+  ownerIds: string[];
+  tenantOrganizationId: string;
+}) {
+  const scopesById = new Map<string, ResourceScope>();
+  const directlyVisibleScopes = await prismaClient.resourceScope.findMany({
     where: {
       ownerId: {
         in: ownerIds,
@@ -13,10 +21,50 @@ export async function getScopes({ ownerIds }: { ownerIds: string[] }) {
       createdAt: "asc",
     },
   });
+
+  for (const scope of directlyVisibleScopes) {
+    scopesById.set(scope.id, scope);
+  }
+
+  let parentIds = [tenantOrganizationId];
+
+  while (parentIds.length > 0) {
+    const children = await prismaClient.resourceScope.findMany({
+      where: {
+        parentId: {
+          in: parentIds,
+        },
+        deletedAt: null,
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    parentIds = children
+      .filter((scope) => !scopesById.has(scope.id))
+      .map((scope) => scope.id);
+
+    for (const scope of children) {
+      scopesById.set(scope.id, scope);
+    }
+  }
+
+  return [...scopesById.values()].sort(
+    (first, second) => first.createdAt.getTime() - second.createdAt.getTime()
+  );
 }
 
-export async function getScopeById({ id, ownerIds }: { id: string; ownerIds: string[] }) {
-  return await prismaClient.resourceScope.findFirst({
+export async function getScopeById({
+  id,
+  ownerIds,
+  tenantOrganizationId,
+}: {
+  id: string;
+  ownerIds: string[];
+  tenantOrganizationId: string;
+}) {
+  const directlyVisibleScope = await prismaClient.resourceScope.findFirst({
     where: {
       id,
       ownerId: {
@@ -25,6 +73,61 @@ export async function getScopeById({ id, ownerIds }: { id: string; ownerIds: str
       deletedAt: null,
     },
   });
+
+  if (directlyVisibleScope) {
+    return directlyVisibleScope;
+  }
+
+  const scope = await prismaClient.resourceScope.findFirst({
+    where: {
+      id,
+      deletedAt: null,
+    },
+  });
+
+  if (!scope) {
+    return null;
+  }
+
+  if (await isDescendantOfScope({ scope, ancestorId: tenantOrganizationId })) {
+    return scope;
+  }
+
+  return null;
+}
+
+export async function isDescendantOfScope({
+  scope,
+  ancestorId,
+}: {
+  scope: ResourceScope;
+  ancestorId: string;
+}) {
+  let parentId = scope.parentId;
+  const seenScopeIds = new Set<string>([scope.id]);
+
+  while (parentId) {
+    if (parentId === ancestorId) {
+      return true;
+    }
+
+    if (seenScopeIds.has(parentId)) {
+      return false;
+    }
+
+    seenScopeIds.add(parentId);
+
+    const parent = await prismaClient.resourceScope.findFirst({
+      where: {
+        id: parentId,
+        deletedAt: null,
+      },
+    });
+
+    parentId = parent?.parentId ?? null;
+  }
+
+  return false;
 }
 
 export async function ensureTenantOrganizationScope({
@@ -112,7 +215,7 @@ export async function ensureUserScope({
   });
 }
 
-export async function createScope({ ownerId, name, description, type, parentId }: { ownerId: string; name: string; description: string; type: ScopeType; parentId?: string | null }) {
+export async function createScope({ ownerId, name, description, type, parentId }: { ownerId: string; name: string; description?: string | null; type: ScopeType; parentId: string }) {
   return await prismaClient.resourceScope.create({
     data: {
       ownerId,
