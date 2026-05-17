@@ -1,5 +1,5 @@
 "use client"
-import { MessageSquareXIcon, PanelLeftIcon, SearchIcon, SparkleIcon } from "lucide-react"
+import { MessageSquareXIcon, PanelLeftIcon, SearchIcon, SparkleIcon, SwordIcon } from "lucide-react"
 import { DockviewApi } from "dockview-react"
 
 export function HeaderIcon() {
@@ -14,7 +14,7 @@ export function HeaderIcon() {
             backgroundColor: "#983DFF",
             marginLeft: "15px",
         }}>
-            <SparkleIcon size={18} color="#fff" />
+            <SwordIcon size={18} color="#fff" />
         </div>
     )
 }

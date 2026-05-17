@@ -41,6 +41,7 @@ function DefaultTab(params: IDockviewPanelHeaderProps) {
             flexShrink: 0,
             marginLeft: '5px',
             cursor: 'pointer',
+            color: '#999999',
           }} 
           onClick={(e) => {
             e.stopPropagation();
@@ -138,7 +139,7 @@ export function DockviewWorkbench() {
         id: 'bottom-group',
         initialSize: 200,
         minimumSize: 100,
-        // collapsed: true
+        collapsed: true
     });
     // event.api.addPanel({
     //   id: "explorer",
