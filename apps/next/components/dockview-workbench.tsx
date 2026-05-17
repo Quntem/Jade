@@ -12,27 +12,29 @@ import {
 } from "dockview-react";
 import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from "./ui/empty";
 import { Button } from "./ui/button";
-import { FolderOpenIcon, Maximize2, X, XIcon } from "lucide-react";
+import { FolderOpenIcon, Maximize2, ServerIcon, TerminalIcon, X, XIcon } from "lucide-react";
+import { WebShell } from "./webshell/webshell";
 
 function DefaultPanel({ params }: IDockviewPanelProps<{ text: string }>) {
   return <div style={{ padding: 16 }}>{params.text}</div>;
 }
 
 function DefaultTab(params: IDockviewPanelHeaderProps) {
+  const Icon = params.params.icon;
   return (
       <div style={{
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: '5px',
+        gap: '8px',
         height: '100%',
         width: '100%',
         marginLeft: '5px',
         marginRight: '5px',
         color: '#666666',
       }}>
-        <FolderOpenIcon size={16} />
-        <div className="text-[14px]">{params.api.title}</div>
+        {Icon && <Icon size={14} />}
+        <div className="text-[15px]">{params.api.title}</div>
         <XIcon 
           size={16} 
           style={{
@@ -82,6 +84,7 @@ function RightHeaderActionsComponent(props: IDockviewHeaderActionsProps) {
 
 const components = {
   default: DefaultPanel,
+  webshell: WebShell,
 };
 
 const tabComponents = {
@@ -95,7 +98,35 @@ export function DockviewWorkbench() {
       component: "default",
       title: "Test",
       tabComponent: "default",
-      params: { text: "Drag tabs to rearrange the layout." },
+      params: { text: "Drag tabs to rearrange the layout.", icon: ServerIcon },
+    });
+    event.api.addPanel({
+      id: "Test2",
+      component: "default",
+      title: "Test",
+      tabComponent: "default",
+      params: { text: "Drag tabs to rearrange the layout.", icon: ServerIcon },
+    });
+    event.api.addPanel({
+      id: "Test3",
+      component: "default",
+      title: "Test",
+      tabComponent: "default",
+      params: { text: "Drag tabs to rearrange the layout.", icon: ServerIcon },
+    });
+    event.api.addPanel({
+      id: "Test4",
+      component: "default",
+      title: "Test",
+      tabComponent: "default",
+      params: { text: "Drag tabs to rearrange the layout.", icon: ServerIcon },
+    });
+    event.api.addPanel({
+      id: "Test5",
+      component: "default",
+      title: "Test",
+      tabComponent: "default",
+      params: { text: "Drag tabs to rearrange the layout.", icon: ServerIcon },
     });
     // event.api.addEdgeGroup('left', {
     //     id: 'left-group',
@@ -107,7 +138,7 @@ export function DockviewWorkbench() {
         id: 'bottom-group',
         initialSize: 200,
         minimumSize: 100,
-        collapsed: true
+        // collapsed: true
     });
     // event.api.addPanel({
     //   id: "explorer",
@@ -117,18 +148,22 @@ export function DockviewWorkbench() {
     //   params: { text: "Hello from Dockview." },
     // });
     event.api.addPanel({
-      id: "cloudShell",
-      component: "default",
+      id: "WebShell",
+      component: "webshell",
       tabComponent: "default",
-      title: "Cloud Shell",
+      title: "WebShell",
       position: { referenceGroup: "bottom-group" },
-      params: { text: "Drag tabs to rearrange the layout." },
+      params: { text: "Drag tabs to rearrange the layout.", icon: TerminalIcon },
     });
   }, []);
 
   return (
     <div className="dockview-theme-light" style={{ height: "100vh" }}>
-      <DockviewReact disableTabsOverflowList rightHeaderActionsComponent={RightHeaderActionsComponent} watermarkComponent={WatermarkComponent} tabComponents={tabComponents} theme={themeLight} components={components} onReady={onReady} />
+      <DockviewReact getTabContextMenuItems={() => {
+        return ['close',
+        'closeOthers',
+        'closeAll',]
+      }} disableTabsOverflowList rightHeaderActionsComponent={RightHeaderActionsComponent} watermarkComponent={WatermarkComponent} tabComponents={tabComponents} theme={themeLight} components={components} onReady={onReady} />
     </div>
   );
 }
