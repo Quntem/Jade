@@ -2,4 +2,5 @@
 .turbo
 dist
 node_modules
-
+.env
+packages/database/src/generated

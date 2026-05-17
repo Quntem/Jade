@@ -14,6 +14,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from ".
 import { Button } from "./ui/button";
 import { FolderOpenIcon, Maximize2, ServerIcon, TerminalIcon, X, XIcon } from "lucide-react";
 import { WebShell } from "./webshell/webshell";
+import { ChatKitUi } from "./chatkit";
 
 function DefaultPanel({ params }: IDockviewPanelProps<{ text: string }>) {
   return <div style={{ padding: 16 }}>{params.text}</div>;
@@ -53,7 +54,7 @@ function DefaultTab(params: IDockviewPanelHeaderProps) {
 }
 
 function WatermarkComponent() {
-  return <div className="flex-1 h-full flex flex-row items-center justify-center bg-neutral-100">
+  return <div className="flex-1 h-full flex flex-row items-center justify-center bg-[#fafafa]">
     <Empty>
       <EmptyContent className="gap-0">
         <EmptyMedia>
@@ -86,6 +87,7 @@ function RightHeaderActionsComponent(props: IDockviewHeaderActionsProps) {
 const components = {
   default: DefaultPanel,
   webshell: WebShell,
+  chatkit: ChatKitUi,
 };
 
 const tabComponents = {
@@ -126,6 +128,13 @@ export function DockviewWorkbench() {
       id: "Test5",
       component: "default",
       title: "Test",
+      tabComponent: "default",
+      params: { text: "Drag tabs to rearrange the layout.", icon: ServerIcon },
+    });
+    event.api.addPanel({
+      id: "ChatKit",
+      component: "chatkit",
+      title: "ChatKit",
       tabComponent: "default",
       params: { text: "Drag tabs to rearrange the layout.", icon: ServerIcon },
     });

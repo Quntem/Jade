@@ -15,7 +15,8 @@ const nextConfig: NextConfig = {
         destination: `${backendUrl}/:path*`
       }
     ];
-  }
+  },
+  allowedDevOrigins: ['oscar-macbook-dev-3000.quntem.co.uk'],
 };
 
 export default nextConfig;

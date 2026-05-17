@@ -1,0 +1,705 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ResourcePhase {
+  Pending
+  Planning
+  Scheduled
+  Deploying
+  Running
+  Degraded
+  Failed
+  Deleting
+  Deleted
+}
+
+enum ResourceHealth {
+  Unknown
+  Healthy
+  Warning
+  Unhealthy
+}
+
+enum ScopeType {
+  Organization
+  Project
+  ResourceGroup
+  Folder
+  System
+}
+
+enum DeploymentTargetKind {
+  Server
+  ServerGroup
+  KubernetesCluster
+  External
+}
+
+enum TargetStatus {
+  Unknown
+  Online
+  Offline
+  Degraded
+  Maintenance
+}
+
+enum ServerStatus {
+  Unknown
+  Online
+  Offline
+  Degraded
+  Maintenance
+}
+
+enum AgentStatus {
+  Unknown
+  Online
+  Offline
+  Degraded
+}
+
+enum DeploymentStatus {
+  Queued
+  Planning
+  Running
+  Succeeded
+  Failed
+  Cancelled
+  RolledBack
+}
+
+enum DeploymentStepStatus {
+  Pending
+  Running
+  Succeeded
+  Failed
+  Skipped
+  RolledBack
+}
+
+enum AgentJobType {
+  ApplyResource
+  DestroyResource
+  ObserveResource
+  ReconcileResource
+  RunCommand
+}
+
+enum AgentJobStatus {
+  Queued
+  Leased
+  Running
+  Succeeded
+  Failed
+  Cancelled
+  Expired
+}
+
+enum ResourceEventType {
+  Created
+  Updated
+  Deleted
+  PhaseChanged
+  HealthChanged
+  Scheduled
+  DeploymentStarted
+  DeploymentSucceeded
+  DeploymentFailed
+  DriftDetected
+  Reconciled
+  Error
+}
+
+enum ResourceDependencyKind {
+  DependsOn
+  Owns
+  Uses
+  Exposes
+  Requires
+}
+
+enum ResourceLockKind {
+  Deployment
+  Reconciliation
+  Deletion
+  Manual
+}
+
+enum SecretKind {
+  Opaque
+  Token
+  Password
+  Certificate
+  SshKey
+  Kubeconfig
+}
+
+model ResourceScope {
+  id String @id @default(cuid())
+
+  type ScopeType
+  name String
+  description String?
+
+  parentId String?
+  parent ResourceScope? @relation("ScopeTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children ResourceScope[] @relation("ScopeTree")
+
+  ownerId String?
+
+  defaultProvider String?
+  defaultTargetId String?
+
+  labels Json @default("{}")
+  annotations Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  resources Resource[]
+  deployments Deployment[]
+  targets DeploymentTarget[]
+  auditLogs AuditLog[]
+  secrets Secret[]
+
+  @@index([type])
+  @@index([parentId])
+  @@index([ownerId])
+  @@map("resource_scopes")
+}
+
+model Resource {
+  id String @id @default(cuid())
+
+  type String
+  name String
+
+  scopeId String
+  scope ResourceScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  spec Json
+  status Json @default("{}")
+
+  desiredVersion Int @default(1)
+  observedVersion Int @default(0)
+
+  phase ResourcePhase @default(Pending)
+  health ResourceHealth @default(Unknown)
+
+  provider String?
+
+  targetId String?
+  target DeploymentTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
+
+  labels Json @default("{}")
+  annotations Json @default("{}")
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  lastError String?
+
+  dependencies ResourceDependency[] @relation("ResourceDependencies")
+  dependents ResourceDependency[] @relation("ResourceDependents")
+
+  deployments Deployment[]
+  deploymentSteps DeploymentStep[]
+  agentJobs AgentJob[]
+  events ResourceEvent[]
+  locks ResourceLock[]
+  secrets Secret[]
+
+  @@unique([scopeId, type, name])
+  @@index([scopeId])
+  @@index([type])
+  @@index([phase])
+  @@index([health])
+  @@index([provider])
+  @@index([targetId])
+  @@index([createdAt])
+  @@map("resources")
+}
+
+model DeploymentTarget {
+  id String @id @default(cuid())
+
+  kind DeploymentTargetKind
+  name String
+
+  scopeId String?
+  scope ResourceScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  provider String?
+  status TargetStatus @default(Unknown)
+
+  serverId String?
+  server Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
+
+  serverGroupId String?
+  serverGroup ServerGroup? @relation(fields: [serverGroupId], references: [id], onDelete: SetNull)
+
+  kubernetesClusterId String?
+  kubernetesCluster KubernetesCluster? @relation(fields: [kubernetesClusterId], references: [id], onDelete: SetNull)
+
+  endpoint String?
+
+  capabilities Json @default("{}")
+  metadata Json @default("{}")
+
+  labels Json @default("{}")
+  annotations Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  resources Resource[]
+  deployments Deployment[]
+  agentJobs AgentJob[]
+
+  @@index([kind])
+  @@index([scopeId])
+  @@index([provider])
+  @@index([status])
+  @@index([serverId])
+  @@index([serverGroupId])
+  @@index([kubernetesClusterId])
+  @@map("deployment_targets")
+}
+
+model Server {
+  id String @id @default(cuid())
+
+  name String
+
+  scopeId String?
+  status ServerStatus @default(Unknown)
+
+  hostname String?
+  os String?
+  arch String?
+
+  cpuCores Int?
+  memoryBytes BigInt?
+  storageBytes BigInt?
+
+  lastSeenAt DateTime?
+
+  labels Json @default("{}")
+  annotations Json @default("{}")
+  metadata Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  agents Agent[]
+  capabilities ServerCapability[]
+  groupMemberships ServerGroupMember[]
+  kubernetesNodes KubernetesClusterNode[]
+  deploymentTargets DeploymentTarget[]
+
+  @@index([scopeId])
+  @@index([status])
+  @@index([hostname])
+  @@map("servers")
+}
+
+model Agent {
+  id String @id @default(cuid())
+
+  serverId String
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  name String
+  version String?
+
+  status AgentStatus @default(Unknown)
+  lastSeenAt DateTime?
+
+  capabilities Json @default("{}")
+  metadata Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  jobs AgentJob[]
+
+  @@index([serverId])
+  @@index([status])
+  @@index([lastSeenAt])
+  @@map("agents")
+}
+
+model ServerCapability {
+  id String @id @default(cuid())
+
+  serverId String
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  type String
+  provider String
+
+  available Boolean @default(true)
+  data Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([serverId, type, provider])
+  @@index([type])
+  @@index([provider])
+  @@map("server_capabilities")
+}
+
+model ServerGroup {
+  id String @id @default(cuid())
+
+  name String
+  scopeId String?
+
+  schedulingPolicy Json @default("{}")
+
+  labels Json @default("{}")
+  annotations Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  members ServerGroupMember[]
+  deploymentTargets DeploymentTarget[]
+
+  @@index([scopeId])
+  @@map("server_groups")
+}
+
+model ServerGroupMember {
+  id String @id @default(cuid())
+
+  serverGroupId String
+  serverGroup ServerGroup @relation(fields: [serverGroupId], references: [id], onDelete: Cascade)
+
+  serverId String
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  role String?
+  priority Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([serverGroupId, serverId])
+  @@index([serverId])
+  @@map("server_group_members")
+}
+
+model KubernetesCluster {
+  id String @id @default(cuid())
+
+  name String
+  scopeId String?
+
+  distribution String?
+  version String?
+
+  endpoint String?
+  status TargetStatus @default(Unknown)
+
+  kubeconfigSecretId String?
+  provider String?
+
+  labels Json @default("{}")
+  annotations Json @default("{}")
+  metadata Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  nodes KubernetesClusterNode[]
+  deploymentTargets DeploymentTarget[]
+
+  @@index([scopeId])
+  @@index([status])
+  @@index([provider])
+  @@map("kubernetes_clusters")
+}
+
+model KubernetesClusterNode {
+  id String @id @default(cuid())
+
+  clusterId String
+  cluster KubernetesCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+
+  serverId String
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  role String
+  nodeName String?
+
+  labels Json @default("{}")
+  annotations Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clusterId, serverId])
+  @@index([serverId])
+  @@map("kubernetes_cluster_nodes")
+}
+
+model Deployment {
+  id String @id @default(cuid())
+
+  scopeId String?
+  scope ResourceScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  resourceId String?
+  resource Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+
+  targetId String?
+  target DeploymentTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
+
+  status DeploymentStatus @default(Queued)
+
+  desiredVersion Int?
+  plan Json @default("{}")
+
+  summary String?
+  createdBy String?
+
+  startedAt DateTime?
+  finishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  steps DeploymentStep[]
+  events ResourceEvent[]
+
+  @@index([scopeId])
+  @@index([resourceId])
+  @@index([targetId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("deployments")
+}
+
+model DeploymentStep {
+  id String @id @default(cuid())
+
+  deploymentId String
+  deployment Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  resourceId String?
+  resource Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+
+  order Int
+
+  name String
+  action String
+
+  provider String?
+  targetId String?
+
+  status DeploymentStepStatus @default(Pending)
+
+  input Json @default("{}")
+  output Json @default("{}")
+
+  error String?
+
+  startedAt DateTime?
+  finishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs AgentJob[]
+
+  @@unique([deploymentId, order])
+  @@index([resourceId])
+  @@index([status])
+  @@index([targetId])
+  @@map("deployment_steps")
+}
+
+model AgentJob {
+  id String @id @default(cuid())
+
+  agentId String?
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  targetId String?
+  target DeploymentTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
+
+  resourceId String?
+  resource Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+
+  deploymentStepId String?
+  deploymentStep DeploymentStep? @relation(fields: [deploymentStepId], references: [id], onDelete: SetNull)
+
+  type AgentJobType
+  status AgentJobStatus @default(Queued)
+
+  payload Json
+  result Json @default("{}")
+
+  leaseOwner String?
+  leasedAt DateTime?
+  leaseExpiresAt DateTime?
+
+  attempts Int @default(0)
+  maxAttempts Int @default(3)
+
+  lastError String?
+
+  startedAt DateTime?
+  finishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([targetId])
+  @@index([resourceId])
+  @@index([deploymentStepId])
+  @@index([status])
+  @@index([type])
+  @@index([leaseExpiresAt])
+  @@map("agent_jobs")
+}
+
+model ResourceEvent {
+  id String @id @default(cuid())
+
+  resourceId String
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  deploymentId String?
+  deployment Deployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+
+  type ResourceEventType
+
+  message String?
+  data Json @default("{}")
+
+  version Int?
+  createdBy String?
+
+  createdAt DateTime @default(now())
+
+  @@index([resourceId])
+  @@index([deploymentId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("resource_events")
+}
+
+model ResourceDependency {
+  id String @id @default(cuid())
+
+  resourceId String
+  resource Resource @relation("ResourceDependencies", fields: [resourceId], references: [id], onDelete: Cascade)
+
+  dependsOnId String
+  dependsOn Resource @relation("ResourceDependents", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  kind ResourceDependencyKind @default(DependsOn)
+
+  createdAt DateTime @default(now())
+
+  @@unique([resourceId, dependsOnId, kind])
+  @@index([dependsOnId])
+  @@map("resource_dependencies")
+}
+
+model ResourceLock {
+  id String @id @default(cuid())
+
+  resourceId String
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  kind ResourceLockKind
+
+  owner String
+  reason String?
+
+  expiresAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([resourceId, kind])
+  @@index([expiresAt])
+  @@map("resource_locks")
+}
+
+model Secret {
+  id String @id @default(cuid())
+
+  name String
+
+  scopeId String?
+  scope ResourceScope? @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  resourceId String?
+  resource Resource? @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  kind SecretKind @default(Opaque)
+
+  ciphertext Bytes?
+  externalRef String?
+
+  metadata Json @default("{}")
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([scopeId])
+  @@index([resourceId])
+  @@index([kind])
+  @@map("secrets")
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  scopeId String?
+  scope ResourceScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  actorId String?
+
+  action String
+
+  resourceId String?
+  resourceType String?
+  resourceName String?
+
+  before Json?
+  after Json?
+  metadata Json @default("{}")
+
+  createdAt DateTime @default(now())
+
+  @@index([scopeId])
+  @@index([actorId])
+  @@index([action])
+  @@index([resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
