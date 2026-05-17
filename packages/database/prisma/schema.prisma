@@ -31,9 +31,11 @@ enum ResourceHealth {
 
 enum ScopeType {
   Organization
+  User
   Project
   ResourceGroup
   Folder
+  Environment
   System
 }
 

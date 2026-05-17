@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react"
 
 export type ScopeType =
     | "Organization"
+    | "User"
     | "Project"
     | "ResourceGroup"
     | "Folder"
+    | "Environment"
     | "System"
 
 export type Scope = {

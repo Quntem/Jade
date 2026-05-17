@@ -1,5 +1,5 @@
 "use client"
-import { Building2Icon, ChevronRightIcon, FolderIcon, MessageSquareXIcon, PanelLeftIcon, PlusIcon, SearchIcon, SwordIcon } from "lucide-react"
+import { Building2Icon, ChevronRightIcon, FolderIcon, MessageSquareXIcon, PanelLeftIcon, PlusIcon, SearchIcon, SwordIcon, TestTubeIcon, UserIcon } from "lucide-react"
 import { Avatar, AvatarFallback } from "./ui/avatar"
 import { useAuthContext } from "@/lib/auth"
 import { useAppContext } from "@/lib/appContext"
@@ -10,7 +10,7 @@ import { Input } from "./ui/input"
 import { createScope, Scope, ScopeType, useScopes } from "@/lib/scopes"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
-const scopeTypes: ScopeType[] = ["Organization", "Project", "ResourceGroup", "Folder", "System"]
+const scopeTypes: ScopeType[] = ["Project", "ResourceGroup", "Folder", "Environment", "System"]
 
 export function HeaderIcon() {
     return (
@@ -175,18 +175,15 @@ export function ScopeSwitcher() {
         () => scopes.data?.find((item) => item.id === scope) ?? null,
         [scope, scopes.data]
     );
+    const selectedScopeName = selectedScope
+        ? getScopeDisplayName(selectedScope, scopes.data ?? [])
+        : "Scope";
     const scopeSelectionRequired = Boolean(
         scopes.loaded && !scopes.error && (!scope || !selectedScope)
     );
 
     const roots = useMemo(() => {
         const items = scopes.data ?? [];
-        const organizationRoots = items.filter((item) => item.type === "Organization");
-
-        if (organizationRoots.length > 0) {
-            return organizationRoots;
-        }
-
         return items.filter((item) => !item.parentId);
     }, [scopes.data]);
 
@@ -218,8 +215,12 @@ export function ScopeSwitcher() {
             >
                 <DialogTrigger asChild>
                     <Button variant={"ghost"} size="sm">
-                        <Building2Icon />
-                        {selectedScope?.name ?? "Scope"}
+                        {selectedScope ? (
+                            <ScopeTypeIcon type={selectedScope.type} />
+                        ) : (
+                            <Building2Icon />
+                        )}
+                        {selectedScopeName}
                     </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-lg">
@@ -326,11 +327,7 @@ function ScopeTreeItem({
                     className={`flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1 text-left ${isSelected ? "bg-accent text-accent-foreground" : ""}`}
                     onClick={() => onSelect(scope.id)}
                 >
-                    {scope.type === "Organization" ? (
-                        <Building2Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                        <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                    )}
+                    <ScopeTypeIcon type={scope.type} className="size-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">{scope.name}</span>
                     <span className="ml-auto shrink-0 text-xs text-muted-foreground">{scope.type}</span>
                 </button>
@@ -351,6 +348,42 @@ function ScopeTreeItem({
             )}
         </div>
     )
+}
+
+function getScopeDisplayName(scope: Scope, scopes: Scope[]) {
+    if (scope.type !== "Environment" || !scope.parentId) {
+        return scope.name;
+    }
+
+    const parentScope = scopes.find((item) => item.id === scope.parentId);
+
+    if (!parentScope) {
+        return scope.name;
+    }
+
+    return `${parentScope.name} / ${scope.name}`;
+}
+
+function ScopeTypeIcon({
+    type,
+    className,
+}: {
+    type: ScopeType;
+    className?: string;
+}) {
+    if (type === "Organization") {
+        return <Building2Icon className={className} />
+    }
+
+    if (type === "User") {
+        return <UserIcon className={className} />
+    }
+
+    if (type === "Environment") {
+        return <TestTubeIcon className={className} />
+    }
+
+    return <FolderIcon className={className} />
 }
 
 function CreateScopeDialog({

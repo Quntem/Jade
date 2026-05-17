@@ -2,9 +2,11 @@ import express from "express";
 
 const router = express.Router();
 
-import { getScopes, createScope, getScopeById } from "../functions/scopes";
+import { getScopes, createScope, getScopeById, ensureTenantOrganizationScope, ensureUserScope } from "../functions/scopes";
 import { VerifySession } from "keystone-lib";
 import type { Request, Response } from "express";
+
+type Session = NonNullable<Awaited<ReturnType<typeof VerifySession>>>;
 
 function getCookie(req: Request, name: string) {
   const middlewareCookie = req.cookies?.[name];
@@ -51,29 +53,84 @@ async function getSession(req: Request, res: Response) {
   }
 }
 
+async function ensureTenantOrganization(session: Session) {
+  return await ensureTenantOrganizationScope({
+    tenantId: session.tenant.id,
+    tenantName: session.tenant.displayName ?? session.tenant.name,
+  });
+}
+
+async function ensureDefaultScopes(session: Session) {
+  const tenantOrganization = await ensureTenantOrganization(session);
+  const userScope = await ensureUserScope({
+    userId: session.user.id,
+    userName: session.user.name?.trim() || "User",
+  });
+
+  return {
+    tenantOrganization,
+    userScope,
+  };
+}
+
+function visibleScopeOwnerIds(session: Session) {
+  return [session.user.id, session.tenant.id];
+}
+
 router.get("/", async (req, res) => {
   const session = await getSession(req, res);
   if (!session) return;
 
-  const scopes = await getScopes({ ownerId: session?.user?.id });
+  await ensureDefaultScopes(session);
+  const scopes = await getScopes({
+    ownerIds: visibleScopeOwnerIds(session),
+  });
+
   res.json(scopes);
 });
 
 router.get("/id/:id", async (req, res) => {
-  const scope = await getScopeById({ id: req.params.id as string });
+  const session = await getSession(req, res);
+  if (!session) return;
+
+  await ensureDefaultScopes(session);
+  const scope = await getScopeById({
+    id: req.params.id as string,
+    ownerIds: visibleScopeOwnerIds(session),
+  });
+
+  if (!scope) {
+    res.status(404).json({ error: "Scope not found" });
+    return;
+  }
+
   res.json(scope);
 });
 
 router.post("/", async (req, res) => {
   const session = await getSession(req, res);
   if (!session) return;
+  const { tenantOrganization, userScope } = await ensureDefaultScopes(session);
+  const type = req.body.type;
+  const isOrganization = type === "Organization";
+  const isUser = type === "User";
+
+  if (isOrganization) {
+    res.json(tenantOrganization);
+    return;
+  }
+
+  if (isUser) {
+    res.json(userScope);
+    return;
+  }
 
   const scope = await createScope({
-    ownerId: session?.user?.id,
+    ownerId: session.user.id,
     name: req.body.name,
     description: req.body.description,
-    type: req.body.type,
-    parentId: req.body.parentId,
+    type,
+    parentId: req.body.parentId ?? tenantOrganization.id,
   });
   res.json(scope);
 });
