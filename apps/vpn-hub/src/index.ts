@@ -331,6 +331,8 @@ async function applyHubConfig({
   }
 
   if (isWireGuardToolsBackend(config.applyBackend)) {
+    await runOptionalCommand("ip", ["link", "add", "dev", config.interfaceName, "type", "wireguard"]);
+
     await wireguardTools.setConfig(config.interfaceName, {
       privateKey,
       portListen: state.hub.endpointPort,
@@ -379,6 +381,10 @@ async function applyHubConfig({
   await Bun.write(networkManagerConfigPath, networkManagerConfig);
   await chmodPrivateKey(networkManagerConfigPath);
   await runCommand("nmcli", ["--version"]);
+
+  // Clean up any pre-existing unmanaged interface
+  await runOptionalCommand("ip", ["link", "delete", "dev", config.interfaceName]);
+
   await runOptionalCommand("nmcli", ["connection", "down", config.interfaceName]);
   await runOptionalCommand("nmcli", ["connection", "delete", config.interfaceName]);
   await runCommand("nmcli", [
