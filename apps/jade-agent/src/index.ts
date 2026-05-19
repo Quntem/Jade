@@ -394,10 +394,6 @@ async function applyVpnConfig({
     await runCommand("ip", ["address", "replace", `${payload.tunnelIp}/32`, "dev", interfaceName]);
     await runCommand("ip", ["link", "set", "dev", interfaceName, "up"]);
 
-    for (const allowedIp of payload.allowedIps) {
-      await runCommand("ip", ["route", "replace", allowedIp, "dev", interfaceName]);
-    }
-
     return {
       backend,
       networkManagerConfigPath: null,
