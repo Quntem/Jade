@@ -332,7 +332,6 @@ async function applyHubConfig({
 
   if (isWireGuardToolsBackend(config.applyBackend)) {
     await runOptionalCommand("ip", ["link", "delete", "dev", config.interfaceName]);
-    await runCommand("ip", ["link", "add", "dev", config.interfaceName, "type", "wireguard"]);
 
     await wireguardTools.setConfig(config.interfaceName, {
       privateKey,
