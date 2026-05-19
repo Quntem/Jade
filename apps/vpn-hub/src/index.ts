@@ -408,6 +408,7 @@ async function applyHubConfig({
     "ipv6.method",
     "disabled",
   ]);
+  await runOptionalCommand("nmcli", ["device", "set", config.interfaceName, "managed", "yes"]);
   await runCommand("nmcli", ["connection", "up", config.interfaceName]);
   await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
 }
