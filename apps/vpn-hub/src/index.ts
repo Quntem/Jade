@@ -38,6 +38,14 @@ type RuntimeConfig = {
   once: boolean;
 };
 
+type InitConfig = {
+  resourceManagerUrl: string | null;
+  hubName: string;
+  endpointHost: string;
+  endpointPort: number;
+  outputDir: string;
+};
+
 function getRuntimeConfig(): RuntimeConfig {
   return {
     resourceManagerUrl: requiredEnv("JADE_RESOURCE_MANAGER_URL").replace(/\/$/, ""),
@@ -46,6 +54,16 @@ function getRuntimeConfig(): RuntimeConfig {
     outputDir: Bun.env.JADE_VPN_HUB_OUTPUT_DIR || DEFAULT_OUTPUT_DIR,
     syncIntervalMs: getDurationMs(),
     once: Bun.env.JADE_VPN_HUB_ONCE === "true",
+  };
+}
+
+function getInitConfig(): InitConfig {
+  return {
+    resourceManagerUrl: Bun.env.JADE_RESOURCE_MANAGER_URL?.trim().replace(/\/$/, "") || null,
+    hubName: Bun.env.JADE_VPN_HUB_NAME?.trim() || "Jade VPN Hub",
+    endpointHost: Bun.env.JADE_VPN_HUB_ENDPOINT_HOST?.trim() || "vpn.example.com",
+    endpointPort: getInitEndpointPort(),
+    outputDir: Bun.env.JADE_VPN_HUB_OUTPUT_DIR || DEFAULT_OUTPUT_DIR,
   };
 }
 
@@ -63,6 +81,14 @@ function getDurationMs() {
     return DEFAULT_SYNC_INTERVAL_MS;
   }
   return Math.floor(configured);
+}
+
+function getInitEndpointPort() {
+  const configured = Number(Bun.env.JADE_VPN_HUB_ENDPOINT_PORT);
+  if (!Number.isInteger(configured) || configured < 1 || configured > 65535) {
+    return 51820;
+  }
+  return configured;
 }
 
 async function fetchHubState(config: RuntimeConfig) {
@@ -209,23 +235,33 @@ function renderWireGuardConfig(state: HubState, privateKey: string) {
   ].join("\n");
 }
 
-async function ensureHubPrivateKey(config: RuntimeConfig) {
-  const privateKeyPath = join(config.outputDir, "hub.privatekey");
+async function ensureHubKeyPair(outputDir: string) {
+  const privateKeyPath = join(outputDir, "hub.privatekey");
   const existingPrivateKeyFile = Bun.file(privateKeyPath);
 
   if (await existingPrivateKeyFile.exists()) {
     const existingPrivateKey = (await existingPrivateKeyFile.text()).trim();
     if (existingPrivateKey.length > 0) {
-      return existingPrivateKey;
+      return {
+        privateKey: existingPrivateKey,
+        publicKey: await wireguardTools.key.publicKey(existingPrivateKey),
+        privateKeyPath,
+        created: false,
+      };
     }
   }
 
   const keyPair = await wireguardTools.key.genKey();
-  await mkdir(config.outputDir, { recursive: true });
+  await mkdir(outputDir, { recursive: true });
   await Bun.write(privateKeyPath, `${keyPair.privateKey}\n`);
   await chmodPrivateKey(privateKeyPath);
 
-  return keyPair.privateKey;
+  return {
+    privateKey: keyPair.privateKey,
+    publicKey: keyPair.publicKey,
+    privateKeyPath,
+    created: true,
+  };
 }
 
 async function chmodPrivateKey(path: string) {
@@ -286,8 +322,8 @@ function renderSummary(state: HubState) {
 async function writeRenderedState(config: RuntimeConfig, state: HubState) {
   await mkdir(config.outputDir, { recursive: true });
 
-  const hubPrivateKey = await ensureHubPrivateKey(config);
-  const wireGuardConfig = renderWireGuardConfig(state, hubPrivateKey);
+  const hubKeyPair = await ensureHubKeyPair(config.outputDir);
+  const wireGuardConfig = renderWireGuardConfig(state, hubKeyPair.privateKey);
   wireguardTools.wgQuick.parse(wireGuardConfig);
   const routingPlan = renderRoutingPlan(state);
   const summary = renderSummary(state);
@@ -297,6 +333,45 @@ async function writeRenderedState(config: RuntimeConfig, state: HubState) {
     Bun.write(join(config.outputDir, "routing-plan.txt"), routingPlan),
     Bun.write(join(config.outputDir, "summary.json"), summary),
   ]);
+}
+
+async function initHub() {
+  const config = getInitConfig();
+  const keyPair = await ensureHubKeyPair(config.outputDir);
+  const envExamplePath = join(config.outputDir, ".env.example");
+  const createHubPayload = {
+    name: config.hubName,
+    endpointHost: config.endpointHost,
+    endpointPort: config.endpointPort,
+    publicKey: keyPair.publicKey,
+  };
+  const envExample = [
+    `JADE_RESOURCE_MANAGER_URL=${config.resourceManagerUrl ?? "https://jade.example.com"}`,
+    "JADE_VPN_HUB_ID=<created-hub-id>",
+    "JADE_VPN_HUB_TOKEN=<created-hub-service-token>",
+    `JADE_VPN_HUB_OUTPUT_DIR=${config.outputDir}`,
+    `JADE_VPN_HUB_ENDPOINT_HOST=${config.endpointHost}`,
+    `JADE_VPN_HUB_ENDPOINT_PORT=${config.endpointPort}`,
+    "",
+  ].join("\n");
+
+  await mkdir(config.outputDir, { recursive: true });
+  await Bun.write(envExamplePath, envExample);
+
+  console.log(keyPair.created ? "Created local hub keypair." : "Reused existing local hub keypair.");
+  console.log(`Private key: ${keyPair.privateKeyPath}`);
+  console.log(`Public key: ${keyPair.publicKey}`);
+  console.log(`Wrote environment template: ${envExamplePath}`);
+  console.log("");
+  console.log("Create the hub in Resource Manager with:");
+  console.log("POST /v1/vpn/hubs");
+  console.log(JSON.stringify(createHubPayload, null, 2));
+  console.log("");
+  console.log("Then run:");
+  console.log("JADE_RESOURCE_MANAGER_URL=<resource-manager-url> \\");
+  console.log("JADE_VPN_HUB_ID=<created-hub-id> \\");
+  console.log("JADE_VPN_HUB_TOKEN=<created-hub-service-token> \\");
+  console.log("bun run --cwd apps/vpn-hub start");
 }
 
 async function syncOnce(config: RuntimeConfig) {
@@ -309,6 +384,11 @@ async function syncOnce(config: RuntimeConfig) {
 }
 
 async function run() {
+  if (Bun.argv[2] === "init") {
+    await initHub();
+    return;
+  }
+
   const config = getRuntimeConfig();
 
   async function syncAndReport() {

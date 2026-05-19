@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "init": "bun run src/index.ts init",
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit"
   },

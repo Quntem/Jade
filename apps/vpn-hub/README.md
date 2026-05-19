@@ -8,6 +8,18 @@ network namespaces, or change routes yet.
 
 ## Run
 
+Initialize local hub files first:
+
+```bash
+JADE_VPN_HUB_ENDPOINT_HOST=vpn.example.com \
+JADE_VPN_HUB_ENDPOINT_PORT=51820 \
+bun run --cwd apps/vpn-hub init
+```
+
+The init command creates or reuses the local hub keypair, writes
+`~/.jade/vpn-hub/.env.example`, and prints the payload to create the hub in
+Resource Manager.
+
 ```bash
 JADE_RESOURCE_MANAGER_URL=https://jade.example.com \
 JADE_VPN_HUB_ID=hub_id \
