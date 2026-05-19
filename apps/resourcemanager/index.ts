@@ -1,8 +1,10 @@
+import { createServer } from "node:http";
 import express from "express";
 import agentsRouter from "./routers/agents";
 import enrollmentTokensRouter from "./routers/enrollmentTokens";
 import scopesRouter from "./routers/scopes";
 import storageExplorerRouter from "./routers/storageexplorer";
+import { setupAgentSockets } from "./sockets/agents";
 
 declare global {
   namespace Express {
@@ -13,6 +15,7 @@ declare global {
 }
 
 const app = express();
+const server = createServer(app);
 const port = 3100;
 
 app.use(express.json());
@@ -38,6 +41,8 @@ app.use("/v1/agents", agentsRouter);
 
 app.use("/v1/storageexplorer", storageExplorerRouter);
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+setupAgentSockets(server);
+
+server.listen(port, () => {
+  console.log(`Resource Manager listening on port ${port}`);
 });
