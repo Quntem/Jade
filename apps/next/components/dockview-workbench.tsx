@@ -15,10 +15,15 @@ import {
 } from "dockview-react";
 import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from "./ui/empty";
 import { Button } from "./ui/button";
-import { Maximize2, PlusIcon, ServerIcon, TerminalIcon, X, XIcon } from "lucide-react";
+import { HardDriveIcon, Maximize2, PlusIcon, ServerIcon, ShapesIcon, TerminalIcon, X, XIcon } from "lucide-react";
 import { WebShell } from "./webshell/webshell";
 import { ChatKitUi } from "./chatkit";
 import { useAppContext } from "@/lib/appContext";
+import { Sidebar } from "./sidebar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
+import { StorageExplorer } from "./storage/explorer";
+import { DeploymentProcessUi } from "./deployment/deploymentProcess";
+
 
 const DOCKVIEW_LAYOUTS_STORAGE_KEY = "dockview-layouts";
 const EDGE_GROUP_POSITIONS: EdgeGroupPosition[] = ["top", "bottom", "left", "right"];
@@ -26,6 +31,8 @@ const EDGE_GROUP_POSITIONS: EdgeGroupPosition[] = ["top", "bottom", "left", "rig
 const panelIcons = {
   server: ServerIcon,
   terminal: TerminalIcon,
+  hardDrive: HardDriveIcon,
+  shapes: ShapesIcon,
 };
 
 type PanelIconName = keyof typeof panelIcons;
@@ -73,16 +80,16 @@ function DefaultTab(params: IDockviewPanelHeaderProps<PanelParams>) {
     );
 }
 
-function addNewTab(api: DockviewApi, referenceGroup?: IDockviewHeaderActionsProps["group"]) {
+function addNewTab(api: DockviewApi, referenceGroup?: IDockviewHeaderActionsProps["group"], component: string = "default", params: PanelParams = { text: "Drag tabs to rearrange the layout.", icon: "server" }) {
   const panelId = `Untitled-${Date.now()}`;
 
   api.addPanel({
     id: panelId,
-    component: "default",
+    component: component,
     title: "Untitled",
     tabComponent: "default",
     position: referenceGroup ? { referenceGroup } : undefined,
-    params: { text: "Drag tabs to rearrange the layout.", icon: "server" },
+    params: params,
   });
 }
 
@@ -96,16 +103,30 @@ function NewTabButton({
   className?: string;
 }) {
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className={className}
-      title="New tab"
-      aria-label="New tab"
-      onClick={() => addNewTab(api, referenceGroup)}
-    >
-      <PlusIcon className="h-4 w-4" />
-    </Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={className}
+          title="New tab"
+          aria-label="New tab"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "default", { text: "Drag tabs to rearrange the layout.", icon: "server" })}>
+          New tab
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "storageExplorer", { text: "Storage Explorer", icon: "hardDrive" })}>
+          Storage Explorer
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "deploymentProcess", { text: "Deployment Process", icon: "shapes" })}>
+          Deployment Process
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -147,6 +168,8 @@ const components = {
   default: DefaultPanel,
   webshell: WebShell,
   chatkit: ChatKitUi,
+  storageExplorer: StorageExplorer,
+  deploymentProcess: DeploymentProcessUi,
 };
 
 const tabComponents = {
@@ -302,7 +325,7 @@ function restoreScopeLayout(api: DockviewApi, scope: string | null) {
   }
 }
 
-export function DockviewWorkbench() {
+export function DockviewWorkbench({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; setSidebarOpen: (value: boolean) => void }) {
   const { scope } = useAppContext();
   const apiRef = useRef<DockviewApi | null>(null);
   const currentScopeRef = useRef(scope);
@@ -360,7 +383,8 @@ export function DockviewWorkbench() {
   }, [runWithLayoutSavingPaused, scope]);
 
   return (
-    <div className="dockview-theme-light" style={{ height: "100vh" }}>
+    <div className="dockview-theme-light flex flex-row" style={{ height: "100vh" }}>
+      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
       <DockviewReact getTabContextMenuItems={() => {
         return ['close',
         'closeOthers',

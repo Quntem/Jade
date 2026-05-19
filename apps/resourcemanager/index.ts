@@ -1,5 +1,6 @@
 import express from "express";
 import scopesRouter from "./routers/scopes";
+import storageExplorerRouter from "./routers/storageexplorer";
 
 declare global {
   namespace Express {
@@ -28,6 +29,8 @@ app.use((req, _res, next) => {
 });
 
 app.use("/v1/scopes", scopesRouter);
+
+app.use("/v1/storageexplorer", storageExplorerRouter);
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);

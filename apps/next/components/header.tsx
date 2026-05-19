@@ -1,5 +1,5 @@
 "use client"
-import { Building2Icon, ChevronRightIcon, FolderIcon, MessageSquareXIcon, PanelLeftIcon, PlusIcon, SearchIcon, SwordIcon, TestTubeIcon, UserIcon } from "lucide-react"
+import { Building2Icon, ChevronRightIcon, FolderIcon, MessageSquareXIcon, PanelLeftIcon, PlusIcon, RefreshCwIcon, SearchIcon, SwordIcon, TestTubeIcon, UserIcon, XIcon } from "lucide-react"
 import { Avatar, AvatarFallback } from "./ui/avatar"
 import { useAuthContext } from "@/lib/auth"
 import { useAppContext } from "@/lib/appContext"
@@ -79,9 +79,11 @@ export function HeaderSearch() {
 
 export function Header({
     sidebarOpen,
+    setSidebarOpen,
     hideSidebar,
 }: {
-    sidebarOpen: [boolean, (value: boolean) => void];
+    sidebarOpen: boolean;
+    setSidebarOpen: (value: boolean) => void;
     hideSidebar?: boolean;
 }) {
     return (
@@ -103,7 +105,7 @@ export function Header({
                         }}
                         size={18}
                     onClick={() => {
-                        sidebarOpen[1](!sidebarOpen[0]);
+                        setSidebarOpen(!sidebarOpen);
                     }}
                 />
             )}
@@ -111,9 +113,9 @@ export function Header({
                 display: "flex",
                 alignItems: "center"
             }} onClick={() => {
-                if (window.location.pathname !== "/") {
-                    window.location.pathname = "/";
-                }
+                // if (window.location.pathname !== "/") {
+                //     window.location.pathname = "/";
+                // }
             }}>
                 <HeaderIcon />
                 <div
@@ -183,60 +185,13 @@ export function ScopeSwitcher() {
         scopes.loaded && !scopes.error && (!scope || !selectedScope)
     );
 
-    const filteredScopes = useMemo(() => {
-        const items = scopes.data ?? [];
-        const query = scopeSearch.trim().toLowerCase();
-
-        if (!query) {
-            return items;
-        }
-
-        const byId = new Map(items.map((item) => [item.id, item]));
-        const childIdsByParentId = new Map<string, string[]>();
-
-        for (const item of items) {
-            if (!item.parentId) {
-                continue;
-            }
-
-            childIdsByParentId.set(item.parentId, [
-                ...(childIdsByParentId.get(item.parentId) ?? []),
-                item.id,
-            ]);
-        }
-
-        const visibleIds = new Set<string>();
-        const markAncestors = (item: Scope) => {
-            let current: Scope | undefined = item;
-
-            while (current) {
-                visibleIds.add(current.id);
-                current = current.parentId ? byId.get(current.parentId) : undefined;
-            }
-        };
-        const markDescendants = (item: Scope) => {
-            for (const childId of childIdsByParentId.get(item.id) ?? []) {
-                visibleIds.add(childId);
-                const child = byId.get(childId);
-
-                if (child) {
-                    markDescendants(child);
-                }
-            }
-        };
-
-        for (const item of items) {
-            if (matchesScopeSearch(item, items, query)) {
-                markAncestors(item);
-                markDescendants(item);
-            }
-        }
-
-        return items.filter((item) => visibleIds.has(item.id));
-    }, [scopeSearch, scopes.data]);
+    const filteredScopes = useMemo(
+        () => filterScopesForTree(scopes.data ?? [], scopeSearch),
+        [scopeSearch, scopes.data]
+    );
 
     const roots = useMemo(() => {
-        return filteredScopes.filter((item) => !item.parentId);
+        return getScopeTreeRoots(filteredScopes);
     }, [filteredScopes]);
 
     useEffect(() => {
@@ -324,6 +279,7 @@ export function ScopeSwitcher() {
 
                 <DialogFooter>
                     <Button variant="outline" onClick={() => scopes.reload()}>
+                        <RefreshCwIcon />
                         Refresh
                     </Button>
                     <Button onClick={() => {
@@ -337,6 +293,7 @@ export function ScopeSwitcher() {
                 </DialogContent>
             </Dialog>
             <CreateScopeDialog
+                key={`${createOpen ? "open" : "closed"}-${scope ?? "none"}-${scopes.data?.map((item) => item.id).join(":") ?? "loading"}`}
                 open={createOpen}
                 onOpenChange={setCreateOpen}
                 scopes={scopes.data ?? []}
@@ -435,6 +392,63 @@ function getScopeDisplayName(scope: Scope, scopes: Scope[]) {
     return `${parentScope.name} / ${scope.name}`;
 }
 
+function getScopeTreeRoots(scopes: Scope[]) {
+    const scopeIds = new Set(scopes.map((item) => item.id));
+
+    return scopes.filter((item) => !item.parentId || !scopeIds.has(item.parentId));
+}
+
+function filterScopesForTree(scopes: Scope[], search: string) {
+    const query = search.trim().toLowerCase();
+
+    if (!query) {
+        return scopes;
+    }
+
+    const byId = new Map(scopes.map((item) => [item.id, item]));
+    const childIdsByParentId = new Map<string, string[]>();
+
+    for (const item of scopes) {
+        if (!item.parentId) {
+            continue;
+        }
+
+        childIdsByParentId.set(item.parentId, [
+            ...(childIdsByParentId.get(item.parentId) ?? []),
+            item.id,
+        ]);
+    }
+
+    const visibleIds = new Set<string>();
+    const markAncestors = (item: Scope) => {
+        let current: Scope | undefined = item;
+
+        while (current) {
+            visibleIds.add(current.id);
+            current = current.parentId ? byId.get(current.parentId) : undefined;
+        }
+    };
+    const markDescendants = (item: Scope) => {
+        for (const childId of childIdsByParentId.get(item.id) ?? []) {
+            visibleIds.add(childId);
+            const child = byId.get(childId);
+
+            if (child) {
+                markDescendants(child);
+            }
+        }
+    };
+
+    for (const item of scopes) {
+        if (matchesScopeSearch(item, scopes, query)) {
+            markAncestors(item);
+            markDescendants(item);
+        }
+    }
+
+    return scopes.filter((item) => visibleIds.has(item.id));
+}
+
 function matchesScopeSearch(scope: Scope, scopes: Scope[], query: string) {
     const displayName = getScopeDisplayName(scope, scopes);
 
@@ -480,12 +494,6 @@ function CreateScopeDialog({
     selectedScopeId: string | null;
     onCreated: (scope: Scope) => void;
 }) {
-    const [name, setName] = useState("");
-    const [description, setDescription] = useState("");
-    const [type, setType] = useState<ScopeType>("Project");
-    const [parentId, setParentId] = useState<string>(selectedScopeId ?? "");
-    const [error, setError] = useState<string | null>(null);
-    const [creating, setCreating] = useState(false);
     const defaultParentId = useMemo(
         () => scopes.find((scope) => scope.type === "Organization")?.id ?? scopes[0]?.id ?? "",
         [scopes]
@@ -494,12 +502,25 @@ function CreateScopeDialog({
         () => scopes.some((scope) => scope.id === selectedScopeId) ? selectedScopeId ?? defaultParentId : defaultParentId,
         [defaultParentId, scopes, selectedScopeId]
     );
-
-    useEffect(() => {
-        if (open) {
-            setParentId(initialParentId);
-        }
-    }, [initialParentId, open]);
+    const [name, setName] = useState("");
+    const [description, setDescription] = useState("");
+    const [type, setType] = useState<ScopeType>("Project");
+    const [parentId, setParentId] = useState<string>(initialParentId);
+    const [parentSearch, setParentSearch] = useState("");
+    const [error, setError] = useState<string | null>(null);
+    const [creating, setCreating] = useState(false);
+    const parentScope = useMemo(
+        () => scopes.find((scope) => scope.id === parentId) ?? null,
+        [parentId, scopes]
+    );
+    const filteredParentScopes = useMemo(
+        () => filterScopesForTree(scopes, parentSearch),
+        [parentSearch, scopes]
+    );
+    const parentRoots = useMemo(
+        () => getScopeTreeRoots(filteredParentScopes),
+        [filteredParentScopes]
+    );
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -528,6 +549,7 @@ function CreateScopeDialog({
     return (
         <Dialog open={open} onOpenChange={(nextOpen) => {
             setParentId(initialParentId);
+            setParentSearch("");
             onOpenChange(nextOpen);
         }}>
             <DialogContent>
@@ -571,20 +593,52 @@ function CreateScopeDialog({
                             </select>
                         </Field>
                         <Field>
-                            <FieldLabel htmlFor="scope-parent">Parent</FieldLabel>
-                            <select
-                                id="scope-parent"
-                                value={parentId}
-                                onChange={(event) => setParentId(event.target.value)}
-                                required
-                                className="border-input bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/50 flex h-8 w-full rounded-lg border px-2.5 py-1 text-sm outline-none focus-visible:ring-3"
-                            >
-                                {scopes.map((scope) => (
-                                    <option key={scope.id} value={scope.id}>{scope.name}</option>
+                            <FieldLabel>Parent</FieldLabel>
+                            <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-2.5 py-2 text-sm">
+                                {parentScope ? (
+                                    <>
+                                        <ScopeTypeIcon type={parentScope.type} className="size-3.5 shrink-0 text-muted-foreground" />
+                                        <span className="min-w-0 flex-1 truncate">{getScopeDisplayName(parentScope, scopes)}</span>
+                                        <span className="shrink-0 text-xs text-muted-foreground">{parentScope.type}</span>
+                                    </>
+                                ) : (
+                                    <span className="text-muted-foreground">Select a parent scope</span>
+                                )}
+                            </div>
+                            <div className="relative">
+                                <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                    value={parentSearch}
+                                    onChange={(event) => setParentSearch(event.target.value)}
+                                    placeholder="Search parent scopes..."
+                                    aria-label="Search parent scopes"
+                                    className="pl-8"
+                                />
+                            </div>
+                            <div className="max-h-[240px] overflow-auto rounded-lg border bg-background p-1" role="tree" aria-label="Parent scopes">
+                                {scopes.length === 0 && (
+                                    <div className="px-3 py-2 text-sm text-muted-foreground">No parent scopes available.</div>
+                                )}
+                                {scopes.length > 0 && parentRoots.length === 0 && (
+                                    <div className="px-3 py-2 text-sm text-muted-foreground">No scopes match your search.</div>
+                                )}
+                                {parentRoots.map((item) => (
+                                    <ScopeTreeItem
+                                        key={item.id}
+                                        scope={item}
+                                        scopes={filteredParentScopes}
+                                        selectedScopeId={parentId}
+                                        forceExpanded={parentSearch.trim().length > 0}
+                                        onSelect={(scopeId) => {
+                                            if (scopeId) {
+                                                setParentId(scopeId);
+                                            }
+                                        }}
+                                    />
                                 ))}
-                            </select>
+                            </div>
                             <FieldDescription>
-                                Use an organization as the parent for top-level project scopes.
+                                Use an organization or personal as the parent for top-level project scopes.
                             </FieldDescription>
                         </Field>
                         {error && (
@@ -595,9 +649,11 @@ function CreateScopeDialog({
                     </FieldGroup>
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                            <XIcon />
                             Cancel
                         </Button>
                         <Button type="submit" disabled={creating || !parentId}>
+                            <PlusIcon />
                             {creating ? "Creating..." : "Create"}
                         </Button>
                     </DialogFooter>
