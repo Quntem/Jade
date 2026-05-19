@@ -100,7 +100,11 @@ const columns: (ColumnDef<JadeServer> & { meta?: { defaultHidden?: boolean } })[
 
 export function Servers(props: IDockviewPanelProps) {
     const [selectedRows, setSelectedRows] = useState<Array<string>>([]);
-    const [enabledColumns, setEnabledColumns] = useState<Array<string>>(Array.from(columns).filter((column) => !column.meta?.defaultHidden).map((column) => column.id));
+    const [enabledColumns, setEnabledColumns] = useState<Array<string>>(
+        columns
+            .filter((column) => column.id && !column.meta?.defaultHidden)
+            .map((column) => column.id as string),
+    );
     const servers = useServers();
     const table = useReactTable({
         data: servers.data || [],
@@ -139,17 +143,20 @@ function ColumnSelector({ enabledColumns, setEnabledColumns }: { enabledColumns:
             <Button variant="ghost" size="sm"><ColumnsIcon />Select Columns</Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-            {columns.map((column) => (
-                <DropdownMenuCheckboxItem onClick={(e) => e.stopPropagation()} checked={enabledColumns.includes(column.id)} onCheckedChange={(checked) => {
+            {columns.filter((column) => column.id).map((column) => {
+                const columnId = column.id as string;
+
+                return (
+                <DropdownMenuCheckboxItem onClick={(e) => e.stopPropagation()} checked={enabledColumns.includes(columnId)} onCheckedChange={(checked) => {
                     if (checked) {
-                        setEnabledColumns([...enabledColumns, column.id]);
+                        setEnabledColumns([...enabledColumns, columnId]);
                     } else {
-                        setEnabledColumns(enabledColumns.filter((id) => id !== column.id));
+                        setEnabledColumns(enabledColumns.filter((id) => id !== columnId));
                     }
-                }} key={column.id}>
-                    {column.header}
+                }} key={columnId}>
+                    {typeof column.header === "string" ? column.header : columnId}
                 </DropdownMenuCheckboxItem>
-            ))}
+            )})}
         </DropdownMenuContent>
     </DropdownMenu>;
 }
