@@ -348,6 +348,7 @@ async function applyHubConfig({
     });
 
     await runCommand("ip", ["link", "set", "dev", config.interfaceName, "up"]);
+    await runCommand("ip", ["address", "replace", "100.64.0.0/32", "dev", config.interfaceName]);
 
     for (const peer of state.peers) {
       for (const allowedIp of peer.allowedIps) {
@@ -410,6 +411,7 @@ async function applyHubConfig({
   ]);
   await runOptionalCommand("nmcli", ["device", "set", config.interfaceName, "managed", "yes"]);
   await runCommand("nmcli", ["connection", "up", config.interfaceName]);
+  await runCommand("ip", ["address", "replace", "100.64.0.0/32", "dev", config.interfaceName]);
   await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
 }
 
