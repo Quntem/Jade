@@ -3,6 +3,7 @@ import express from "express";
 import agentsRouter from "./routers/agents";
 import enrollmentTokensRouter from "./routers/enrollmentTokens";
 import scopesRouter from "./routers/scopes";
+import serversRouter from "./routers/servers";
 import storageExplorerRouter from "./routers/storageexplorer";
 import { setupAgentSockets } from "./sockets/agents";
 
@@ -34,6 +35,8 @@ app.use((req, _res, next) => {
 });
 
 app.use("/v1/scopes", scopesRouter);
+
+app.use("/v1/servers", serversRouter);
 
 app.use("/v1/enrollment-tokens", enrollmentTokensRouter);
 

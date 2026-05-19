@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DockviewReact,
   IDockviewHeaderActionsProps,
@@ -24,6 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { StorageExplorer } from "./storage/explorer";
 import { DeploymentProcessUi } from "./deployment/deploymentProcess";
 import { AccessTokens, createAccessToken } from "./servers/accessTokens";
+import { ServersPanel } from "./servers/ServersPanel";
 
 
 const DOCKVIEW_LAYOUTS_STORAGE_KEY = "dockview-layouts";
@@ -49,7 +50,10 @@ function DefaultPanel({ params }: IDockviewPanelProps<PanelParams>) {
 }
 
 function DefaultTab(params: IDockviewPanelHeaderProps<PanelParams>) {
-  const Icon = params.params.icon ? panelIcons[params.params.icon] : null;
+  params.api.onDidParametersChange(() => {
+    setIcon(params.params.icon ? panelIcons[params.params.icon] : null);
+  });
+  const [Icon, setIcon] = useState<PanelIconName | null>(params.params.icon ? panelIcons[params.params.icon] : null);
 
   return (
       <div style={{
@@ -59,6 +63,7 @@ function DefaultTab(params: IDockviewPanelHeaderProps<PanelParams>) {
         gap: '8px',
         height: '100%',
         width: '100%',
+        // width: '150px',
         marginLeft: '5px',
         marginRight: '5px',
         color: '#666666',
@@ -127,8 +132,8 @@ function NewTabButton({
         <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "deploymentProcess", { text: "Deployment Process", icon: "shapes" })}>
           Deployment Process
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "accessTokens", { text: "Access Tokens", icon: "key" })}>
-          Access Tokens
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "servers", { text: "Servers", icon: "server" })}>
+          Servers
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -175,7 +180,7 @@ const components = {
   chatkit: ChatKitUi,
   storageExplorer: StorageExplorer,
   deploymentProcess: DeploymentProcessUi,
-  accessTokens: AccessTokens,
+  servers: ServersPanel,
   accessTokens_create: createAccessToken,
 };
 

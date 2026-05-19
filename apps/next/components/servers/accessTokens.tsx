@@ -31,7 +31,7 @@ const columns = [
         accessorKey: "description",
         header: "Description",
         id: "description",
-        cell: ({ getValue }) => getValue<string | null>() || "-",
+        cell: ({ getValue }: { getValue: () => string | null }) => getValue() || "-",
     },
     {
         accessorKey: "scopeId",
@@ -92,20 +92,6 @@ export function AccessTokens(props: IDockviewPanelProps) {
     });
 
     return <div className="flex-1">
-        <div className="flex flex-row p-4 border-b-1 border-b-[#e4e4e7] items-center gap-4">
-            <KeyIcon size={35} />
-            <div className="flex flex-col gap-0">
-                <div className="text-lg text-[#666666]">
-                    Access Tokens
-                </div>
-                <div className="text-sm text-[#999999]">Access Tokens Explorer</div>
-            </div>
-            {/* <div className="ml-auto">
-                <Button onClick={() => {
-                    addNewTab(props.containerApi, props.api.group!, "accessTokens_create", { text: "Create Access Token", icon: "key" });
-                }}><PlusIcon />Create Access Token</Button>
-            </div> */}
-        </div>
         <div className="flex flex-row h-[40px] items-center px-1 border-b-1 border-[#e4e4e7]">
             <Button size="sm" variant={"ghost"} onClick={() => {
                 addNewTab(props.containerApi, props.api.group!, "accessTokens_create", { text: "Create Access Token", icon: "key" });
