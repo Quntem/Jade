@@ -38,3 +38,16 @@ bun run --cwd apps/jade-agent start
 Live apply uses `wireguard-tools.js` to validate/render the WireGuard config,
 then imports it with `nmcli connection import type wireguard file ...`. The
 agent process must have permission to manage NetworkManager connections.
+
+To bypass NetworkManager and configure the interface directly with
+`wireguard-tools.js`, use:
+
+```bash
+JADE_VPN_APPLY=true \
+JADE_VPN_APPLY_BACKEND=wireguard-tools.js \
+JADE_WIREGUARD_INTERFACE=jade0 \
+bun run --cwd apps/jade-agent start
+```
+
+The direct backend still uses Linux `ip` commands to assign the interface
+address and routes.

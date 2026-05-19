@@ -41,9 +41,14 @@ Useful optional settings:
 - `JADE_WIREGUARD_INTERFACE=jade-hub0`
 - `JADE_VPN_HUB_APPLY=true`
 - `JADE_VPN_HUB_APPLY_BACKEND=networkmanager`
+- `JADE_VPN_HUB_APPLY_BACKEND=wireguard-tools.js`
 
 By default the hub only renders dry-run files. Live apply is Linux-only and
 uses `wireguard-tools.js` to validate/render the WireGuard config, then imports
 it with `nmcli connection import type wireguard file ...`. The hub still enables
 IPv4 forwarding with `sysctl`, so the process must run with networking
 permissions.
+
+The `wireguard-tools.js` backend bypasses NetworkManager and lets
+`wireguard-tools.js` create and configure the WireGuard interface directly,
+then uses Linux `ip` commands for routes and `sysctl` for forwarding.

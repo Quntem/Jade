@@ -90,6 +90,10 @@ function getDurationMs() {
   return Math.floor(configured);
 }
 
+function isWireGuardToolsBackend(backend: string) {
+  return backend === "wireguard-tools.js" || backend === "wireguard-tools";
+}
+
 function getInitEndpointPort() {
   const configured = Number(Bun.env.JADE_VPN_HUB_ENDPOINT_PORT);
   if (!Number.isInteger(configured) || configured < 1 || configured > 65535) {
@@ -323,6 +327,31 @@ async function applyHubConfig({
 }) {
   if (process.platform !== "linux") {
     throw new Error("Live VPN hub apply is only supported on Linux right now");
+  }
+
+  if (isWireGuardToolsBackend(config.applyBackend)) {
+    await wireguardTools.setConfig(config.interfaceName, {
+      privateKey,
+      portListen: state.hub.endpointPort,
+      replacePeers: true,
+      peers: Object.fromEntries(
+        state.peers.map((peer) => [
+          peer.publicKey,
+          {
+            allowedIPs: peer.allowedIps,
+          },
+        ]),
+      ),
+    });
+
+    for (const peer of state.peers) {
+      for (const allowedIp of peer.allowedIps) {
+        await runCommand("ip", ["route", "replace", allowedIp, "dev", config.interfaceName]);
+      }
+    }
+
+    await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+    return;
   }
 
   if (config.applyBackend !== "networkmanager") {

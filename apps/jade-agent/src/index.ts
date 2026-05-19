@@ -77,6 +77,10 @@ function getVpnApplyBackend() {
   return Bun.env.JADE_VPN_APPLY_BACKEND?.trim() || "networkmanager";
 }
 
+function isWireGuardToolsBackend(backend: string) {
+  return backend === "wireguard-tools.js" || backend === "wireguard-tools";
+}
+
 function getControlUrl() {
   const controlUrl = Bun.env.JADE_CONTROL_URL?.trim();
 
@@ -373,6 +377,25 @@ async function applyVpnConfig({
 
   const interfaceName = getWireGuardInterfaceName();
   const backend = getVpnApplyBackend();
+
+  if (isWireGuardToolsBackend(backend)) {
+    await wireguardTools.setConfig(interfaceName, {
+      privateKey: parsedConfig.privateKey,
+      replacePeers: true,
+      peers: parsedConfig.peers,
+    });
+    await runCommand("ip", ["address", "replace", `${payload.tunnelIp}/32`, "dev", interfaceName]);
+    await runCommand("ip", ["link", "set", "dev", interfaceName, "up"]);
+
+    for (const allowedIp of payload.allowedIps) {
+      await runCommand("ip", ["route", "replace", allowedIp, "dev", interfaceName]);
+    }
+
+    return {
+      backend,
+      networkManagerConfigPath: null,
+    };
+  }
 
   if (backend !== "networkmanager") {
     throw new Error(`Unsupported VPN apply backend: ${backend}`);
