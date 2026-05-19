@@ -5,6 +5,7 @@ import enrollmentTokensRouter from "./routers/enrollmentTokens";
 import scopesRouter from "./routers/scopes";
 import serversRouter from "./routers/servers";
 import storageExplorerRouter from "./routers/storageexplorer";
+import vpnRouter from "./routers/vpn";
 import { setupAgentSockets } from "./sockets/agents";
 
 declare global {
@@ -43,6 +44,8 @@ app.use("/v1/enrollment-tokens", enrollmentTokensRouter);
 app.use("/v1/agents", agentsRouter);
 
 app.use("/v1/storageexplorer", storageExplorerRouter);
+
+app.use("/v1/vpn", vpnRouter);
 
 setupAgentSockets(server);
 

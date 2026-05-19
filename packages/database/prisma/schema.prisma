@@ -94,6 +94,29 @@ enum AgentJobType {
   ObserveResource
   ReconcileResource
   RunCommand
+  ConfigureVpn
+}
+
+enum VpnHubStatus {
+  Unknown
+  Online
+  Offline
+  Degraded
+}
+
+enum VpnPeerStatus {
+  Pending
+  Ready
+  Delivered
+  Degraded
+  Disabled
+}
+
+enum VpnConfigDeliveryStatus {
+  Pending
+  Delivered
+  Acknowledged
+  Failed
 }
 
 enum AgentJobStatus {
@@ -310,6 +333,7 @@ model Server {
 
   agents Agent[]
   capabilities ServerCapability[]
+  vpnPeers VpnPeer[]
   groupMemberships ServerGroupMember[]
   kubernetesNodes KubernetesClusterNode[]
   deploymentTargets DeploymentTarget[]
@@ -328,6 +352,7 @@ model Agent {
 
   name String
   version String?
+  wireguardPublicKey String?
 
   status AgentStatus @default(Unknown)
   lastSeenAt DateTime?
@@ -346,6 +371,107 @@ model Agent {
   @@index([status])
   @@index([lastSeenAt])
   @@map("agents")
+}
+
+model VpnHub {
+  id String @id @default(cuid())
+
+  name String
+  endpointHost String
+  endpointPort Int
+  publicKey String
+  serviceTokenHash String @unique
+
+  status VpnHubStatus @default(Unknown)
+  lastSeenAt DateTime?
+  desiredStateVersion Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  peers VpnPeer[]
+  configRevisions VpnConfigRevision[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("vpn_hubs")
+}
+
+model VpnPeer {
+  id String @id @default(cuid())
+
+  serverId String
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  hubId String
+  hub VpnHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+  tunnelIp String @unique
+  publicKey String
+  status VpnPeerStatus @default(Pending)
+  enabled Boolean @default(true)
+
+  lastConfigRevisionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  configRevisions VpnConfigRevision[]
+  routes VpnRoute[]
+
+  @@unique([serverId, hubId])
+  @@index([serverId])
+  @@index([hubId])
+  @@index([status])
+  @@index([enabled])
+  @@map("vpn_peers")
+}
+
+model VpnConfigRevision {
+  id String @id @default(cuid())
+
+  peerId String
+  peer VpnPeer @relation(fields: [peerId], references: [id], onDelete: Cascade)
+
+  hubId String
+  hub VpnHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+  revision Int
+  desiredStateVersion Int
+  renderedConfig String
+  payload Json @default("{}")
+  deliveryStatus VpnConfigDeliveryStatus @default(Pending)
+  agentJobId String?
+  acknowledgedAt DateTime?
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([peerId, revision])
+  @@index([hubId])
+  @@index([deliveryStatus])
+  @@map("vpn_config_revisions")
+}
+
+model VpnRoute {
+  id String @id @default(cuid())
+
+  peerId String
+  peer VpnPeer @relation(fields: [peerId], references: [id], onDelete: Cascade)
+
+  cidr String
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([peerId, cidr])
+  @@index([cidr])
+  @@index([enabled])
+  @@map("vpn_routes")
 }
 
 model EnrollmentToken {

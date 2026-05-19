@@ -27,6 +27,7 @@ type AgentHeartbeatPayload = {
   os?: unknown;
   arch?: unknown;
   version?: unknown;
+  wireguardPublicKey?: unknown;
   capabilities?: unknown;
   metadata?: unknown;
   status?: unknown;
@@ -205,6 +206,7 @@ async function updateHeartbeat({
   const os = optionalString(payload.os);
   const arch = optionalString(payload.arch);
   const version = optionalString(payload.version);
+  const wireguardPublicKey = optionalString(payload.wireguardPublicKey);
   const capabilities = optionalJsonObject(payload.capabilities);
   const metadata = optionalJsonObject(payload.metadata);
   const agentStatus =
@@ -222,6 +224,7 @@ async function updateHeartbeat({
         status: agentStatus,
         lastSeenAt: now,
         ...(version === undefined ? {} : { version }),
+        ...(wireguardPublicKey === undefined ? {} : { wireguardPublicKey }),
         ...(capabilities === undefined ? {} : { capabilities }),
         ...(metadata === undefined ? {} : { metadata }),
       },

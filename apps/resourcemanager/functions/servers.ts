@@ -36,6 +36,31 @@ function findServers({ scopeIds }: { scopeIds: string[] }) {
           createdAt: "asc",
         },
       },
+      vpnPeers: {
+        where: {
+          deletedAt: null,
+        },
+        include: {
+          hub: {
+            select: {
+              id: true,
+              name: true,
+              endpointHost: true,
+              endpointPort: true,
+              status: true,
+            },
+          },
+          configRevisions: {
+            orderBy: {
+              revision: "desc",
+            },
+            take: 1,
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
     },
     orderBy: {
       createdAt: "desc",
@@ -64,6 +89,31 @@ function findServerById({ id, scopeIds }: { id: string; scopeIds: string[] }) {
       capabilities: {
         orderBy: {
           createdAt: "asc",
+        },
+      },
+      vpnPeers: {
+        where: {
+          deletedAt: null,
+        },
+        include: {
+          hub: {
+            select: {
+              id: true,
+              name: true,
+              endpointHost: true,
+              endpointPort: true,
+              status: true,
+            },
+          },
+          configRevisions: {
+            orderBy: {
+              revision: "desc",
+            },
+            take: 1,
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
         },
       },
     },

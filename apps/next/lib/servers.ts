@@ -16,6 +16,7 @@ export type ServerAgent = {
     serverId: string
     name: string
     version: string | null
+    wireguardPublicKey: string | null
     status: AgentStatus
     lastSeenAt: string | null
     capabilities: unknown
@@ -23,6 +24,46 @@ export type ServerAgent = {
     createdAt: string
     updatedAt: string
     deletedAt: string | null
+}
+
+export type VpnHubSummary = {
+    id: string
+    name: string
+    endpointHost: string
+    endpointPort: number
+    status: "Unknown" | "Online" | "Offline" | "Degraded"
+}
+
+export type VpnConfigRevision = {
+    id: string
+    peerId: string
+    hubId: string
+    revision: number
+    desiredStateVersion: number
+    renderedConfig: string
+    payload: unknown
+    deliveryStatus: "Pending" | "Delivered" | "Acknowledged" | "Failed"
+    agentJobId: string | null
+    acknowledgedAt: string | null
+    lastError: string | null
+    createdAt: string
+    updatedAt: string
+}
+
+export type VpnPeer = {
+    id: string
+    serverId: string
+    hubId: string
+    tunnelIp: string
+    publicKey: string
+    status: "Pending" | "Ready" | "Delivered" | "Degraded" | "Disabled"
+    enabled: boolean
+    lastConfigRevisionId: string | null
+    createdAt: string
+    updatedAt: string
+    deletedAt: string | null
+    hub: VpnHubSummary
+    configRevisions: VpnConfigRevision[]
 }
 
 export type ServerCapability = {
@@ -56,6 +97,7 @@ export type JadeServer = {
     deletedAt: string | null
     agents: ServerAgent[]
     capabilities: ServerCapability[]
+    vpnPeers: VpnPeer[]
 }
 
 export type ListServersOptions = {
@@ -132,6 +174,36 @@ export async function listServers(
 
 export async function getServer(id: string): Promise<JadeServer> {
     return fetchJson<JadeServer>(`/api/v1/servers/id/${encodeURIComponent(id)}`)
+}
+
+export type SpokeVpnConfig = {
+    serverId: string
+    tunnelIp: string
+    endpoint: string
+    allowedIps: string[]
+    renderedConfig: string
+}
+
+export async function provisionVpnPeer(serverId: string): Promise<VpnPeer> {
+    return fetchJson<VpnPeer>(
+        `/api/v1/vpn/peers/${encodeURIComponent(serverId)}/provision`,
+        { method: "POST", body: JSON.stringify({}) },
+    )
+}
+
+export async function deliverVpnConfig(
+    serverId: string,
+): Promise<{ configRevisionId: string; agentJobId: string }> {
+    return fetchJson<{ configRevisionId: string; agentJobId: string }>(
+        `/api/v1/vpn/peers/${encodeURIComponent(serverId)}/deliver-config`,
+        { method: "POST", body: JSON.stringify({}) },
+    )
+}
+
+export async function getVpnConfig(serverId: string): Promise<SpokeVpnConfig> {
+    return fetchJson<SpokeVpnConfig>(
+        `/api/v1/vpn/peers/${encodeURIComponent(serverId)}/config`,
+    )
 }
 
 export function useServers(

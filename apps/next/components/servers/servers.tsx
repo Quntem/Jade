@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, ColumnsIcon, KeyIcon, PlusIcon, RotateCwIcon, SettingsIcon, TagIcon, XIcon } from "lucide-react";
+import { ColumnsIcon, EyeIcon, NetworkIcon, RotateCwIcon, SendIcon, TagIcon } from "lucide-react";
 import { flexRender, getCoreRowModel, type Table as ReactTable, useReactTable } from "@tanstack/react-table";
 import {
     Table,
@@ -13,17 +13,12 @@ import {
 import { AccessToken, useAccessTokens, useCreateAccessToken } from "@/lib/accessTokens";
 import { Button } from "../ui/button";
 import { IDockviewPanelProps } from "dockview-react";
-import { addNewTab } from "../dockview-workbench";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { Field, FieldDescription, FieldTitle } from "../ui/field";
-import { Input } from "../ui/input";
 import { createContext, useContext, useState } from "react";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
-import { JadeServer, useServers } from "@/lib/servers";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { deliverVpnConfig, getVpnConfig, JadeServer, provisionVpnPeer, SpokeVpnConfig, useServers } from "@/lib/servers";
 import { ColumnDef } from "@tanstack/react-table";
-import { Server } from "../../../../packages/database/src/generated/prisma/client";
 import { Checkbox } from "../ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 
 const ServersContext = createContext({
     selectedColumns: [] as string[],
@@ -60,6 +55,27 @@ const columns: (ColumnDef<JadeServer> & { meta?: { defaultHidden?: boolean } })[
         accessorKey: "status",
         header: "Status",
         id: "status",
+    },
+    {
+        header: "VPN",
+        id: "vpnStatus",
+        cell: (cell) => cell.row.original.vpnPeers[0]?.status ?? "Not provisioned",
+    },
+    {
+        header: "Tunnel IP",
+        id: "vpnTunnelIp",
+        cell: (cell) => cell.row.original.vpnPeers[0]?.tunnelIp ?? "-",
+    },
+    {
+        header: "VPN Revision",
+        id: "vpnRevision",
+        cell: (cell) => {
+            const revision = cell.row.original.vpnPeers[0]?.configRevisions[0];
+            return revision ? `#${revision.revision} ${revision.deliveryStatus}` : "-";
+        },
+        meta: {
+            defaultHidden: true,
+        },
     },
     {
         accessorKey: "arch",
@@ -100,6 +116,10 @@ const columns: (ColumnDef<JadeServer> & { meta?: { defaultHidden?: boolean } })[
 
 export function Servers(props: IDockviewPanelProps) {
     const [selectedRows, setSelectedRows] = useState<Array<string>>([]);
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [isWorking, setIsWorking] = useState(false);
+    const [configDialogOpen, setConfigDialogOpen] = useState(false);
+    const [config, setConfig] = useState<SpokeVpnConfig | null>(null);
     const [enabledColumns, setEnabledColumns] = useState<Array<string>>(
         columns
             .filter((column) => column.id && !column.meta?.defaultHidden)
@@ -111,6 +131,38 @@ export function Servers(props: IDockviewPanelProps) {
         columns: columns.filter((column) => enabledColumns.includes(column.id!)),
         getCoreRowModel: getCoreRowModel(),
     });
+    async function runSelectedAction(action: (serverId: string) => Promise<unknown>) {
+        setIsWorking(true);
+        setActionError(null);
+
+        try {
+            for (const serverId of selectedRows) {
+                await action(serverId);
+            }
+            await servers.reload();
+        } catch (error) {
+            setActionError(error instanceof Error ? error.message : "Action failed");
+        } finally {
+            setIsWorking(false);
+        }
+    }
+
+    async function showSelectedConfig() {
+        const serverId = selectedRows[0];
+        if (!serverId) return;
+
+        setIsWorking(true);
+        setActionError(null);
+
+        try {
+            setConfig(await getVpnConfig(serverId));
+            setConfigDialogOpen(true);
+        } catch (error) {
+            setActionError(error instanceof Error ? error.message : "Unable to load VPN config");
+        } finally {
+            setIsWorking(false);
+        }
+    }
 
     return (<ServersContext.Provider value={{ selectedColumns: selectedRows, setSelectedColumns: setSelectedRows }}>
         <div className="flex-1">
@@ -121,10 +173,14 @@ export function Servers(props: IDockviewPanelProps) {
                 <Button disabled={selectedRows.length === 0} size="sm" variant={"ghost"} onClick={() => {
                     
                 }}><TagIcon />Add tags</Button>
+                <Button disabled={selectedRows.length === 0 || isWorking} size="sm" variant={"ghost"} onClick={() => runSelectedAction(provisionVpnPeer)}><NetworkIcon />Provision VPN</Button>
+                <Button disabled={selectedRows.length === 0 || isWorking} size="sm" variant={"ghost"} onClick={() => runSelectedAction(deliverVpnConfig)}><SendIcon />Deliver VPN</Button>
+                <Button disabled={selectedRows.length !== 1 || isWorking} size="sm" variant={"ghost"} onClick={showSelectedConfig}><EyeIcon />Config</Button>
                 <div className="flex-1" />
                 <ColumnSelector enabledColumns={enabledColumns} setEnabledColumns={setEnabledColumns} />
             </div>
             <div className="flex flex-col gap-2 p-4">
+                {actionError ? <div className="text-sm text-destructive">{actionError}</div> : null}
                 <ServersTable
                     table={table}
                     isLoading={!servers.loaded}
@@ -133,6 +189,17 @@ export function Servers(props: IDockviewPanelProps) {
                     setSelectedRows={setSelectedRows}
                 />
             </div>
+            <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+                <DialogContent className="sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>VPN Config</DialogTitle>
+                        <DialogDescription>{config ? `${config.tunnelIp} via ${config.endpoint}` : "No config loaded"}</DialogDescription>
+                    </DialogHeader>
+                    <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 text-xs">
+                        {config?.renderedConfig ?? ""}
+                    </pre>
+                </DialogContent>
+            </Dialog>
         </div>
     </ServersContext.Provider>);
 }

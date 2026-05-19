@@ -28,6 +28,7 @@ type EnrollAgentOptions = {
   arch?: string;
   agentName?: string;
   agentVersion?: string;
+  wireguardPublicKey?: string;
   labels?: Prisma.InputJsonValue;
   annotations?: Prisma.InputJsonValue;
   metadata?: Prisma.InputJsonValue;
@@ -265,6 +266,7 @@ export async function enrollAgent(options: EnrollAgentOptions) {
         serverId: server.id,
         name: options.agentName?.trim() || "jade-agent",
         version: options.agentVersion?.trim() || null,
+        wireguardPublicKey: options.wireguardPublicKey?.trim() || null,
         capabilities: jsonObjectOrDefault(options.capabilities, {}),
       },
     });

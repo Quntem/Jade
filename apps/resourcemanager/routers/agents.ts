@@ -33,6 +33,7 @@ router.post("/enroll", async (req, res) => {
       arch: optionalString(req.body.arch),
       agentName: optionalString(req.body.agentName),
       agentVersion: optionalString(req.body.agentVersion),
+      wireguardPublicKey: optionalString(req.body.wireguardPublicKey),
       labels: optionalJsonObject(req.body.labels),
       annotations: optionalJsonObject(req.body.annotations),
       metadata: optionalJsonObject(req.body.metadata),
