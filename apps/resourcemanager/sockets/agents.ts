@@ -1,8 +1,16 @@
 import type { Server as HttpServer } from "node:http";
 import { Prisma, prismaClient } from "@jade/database";
 import { Server as SocketIoServer } from "socket.io";
+import type { Namespace } from "socket.io";
 import type { Socket } from "socket.io";
 import { hashSecret } from "../functions/agentEnrollment";
+import {
+  completeAgentJob,
+  failAgentJob,
+  leaseQueuedJobsForAgent,
+  markJobAccepted,
+  recordJobProgress,
+} from "../functions/agentJobs";
 
 const DEFAULT_AGENT_OFFLINE_GRACE_MS = 30_000;
 const DEFAULT_AGENT_STALE_MS = 90_000;
@@ -24,7 +32,14 @@ type AgentHeartbeatPayload = {
   status?: unknown;
 };
 
+type AgentJobEventPayload = {
+  jobId?: unknown;
+  result?: unknown;
+  error?: unknown;
+};
+
 const activeAgentSockets = new Map<string, string>();
+let agentNamespace: Namespace | null = null;
 
 function getConfiguredDurationMs({
   environmentVariable,
@@ -139,6 +154,20 @@ function optionalJsonObject(value: unknown): Prisma.InputJsonValue | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Prisma.InputJsonValue)
     : undefined;
+}
+
+function jsonValueOrEmptyObject(value: unknown): Prisma.InputJsonValue {
+  if (value === undefined) {
+    return {};
+  }
+
+  return value as Prisma.InputJsonValue;
+}
+
+function getJobId(payload: AgentJobEventPayload) {
+  return typeof payload.jobId === "string" && payload.jobId.trim().length > 0
+    ? payload.jobId.trim()
+    : null;
 }
 
 async function markAgentOnline({ agentId, serverId }: AgentSocketData) {
@@ -304,6 +333,159 @@ function startStaleAgentSweep() {
   sweepInterval.unref?.();
 }
 
+function serializeJobForAgent(job: Awaited<ReturnType<typeof leaseQueuedJobsForAgent>>[number]) {
+  return {
+    id: job.id,
+    type: job.type,
+    payload: job.payload,
+    attempts: job.attempts,
+    maxAttempts: job.maxAttempts,
+    leaseExpiresAt: job.leaseExpiresAt,
+    resourceId: job.resourceId,
+    targetId: job.targetId,
+    deploymentStepId: job.deploymentStepId,
+    createdAt: job.createdAt,
+  };
+}
+
+async function dispatchQueuedJobs(socket: Socket, agent: AgentSocketData) {
+  const jobs = await leaseQueuedJobsForAgent({ agentId: agent.agentId });
+
+  for (const job of jobs) {
+    socket.emit("job.dispatch", serializeJobForAgent(job));
+  }
+}
+
+export async function dispatchQueuedJobsToOnlineAgent(agentId: string) {
+  if (!agentNamespace) {
+    return;
+  }
+
+  const socketId = activeAgentSockets.get(agentId);
+
+  if (!socketId) {
+    return;
+  }
+
+  const socket = agentNamespace.sockets.get(socketId);
+
+  if (!socket) {
+    activeAgentSockets.delete(agentId);
+    return;
+  }
+
+  const agent = socket.data.agent as AgentSocketData | undefined;
+
+  if (!agent) {
+    return;
+  }
+
+  await dispatchQueuedJobs(socket, agent);
+}
+
+function registerJobHandlers(socket: Socket, agent: AgentSocketData) {
+  socket.on(
+    "job.accepted",
+    async (payload: AgentJobEventPayload = {}, ack?: (response: unknown) => void) => {
+      const jobId = getJobId(payload);
+
+      if (!jobId) {
+        ack?.({ ok: false, error: "jobId is required" });
+        return;
+      }
+
+      const job = await markJobAccepted({ agentId: agent.agentId, jobId });
+
+      ack?.(
+        job
+          ? { ok: true }
+          : { ok: false, error: "Job is not leased to this agent" },
+      );
+    },
+  );
+
+  socket.on(
+    "job.progress",
+    async (payload: AgentJobEventPayload = {}, ack?: (response: unknown) => void) => {
+      const jobId = getJobId(payload);
+
+      if (!jobId) {
+        ack?.({ ok: false, error: "jobId is required" });
+        return;
+      }
+
+      const job = await recordJobProgress({
+        agentId: agent.agentId,
+        jobId,
+        result: jsonValueOrEmptyObject(payload.result),
+      });
+
+      ack?.(
+        job
+          ? { ok: true }
+          : { ok: false, error: "Job is not active for this agent" },
+      );
+    },
+  );
+
+  socket.on(
+    "job.completed",
+    async (payload: AgentJobEventPayload = {}, ack?: (response: unknown) => void) => {
+      const jobId = getJobId(payload);
+
+      if (!jobId) {
+        ack?.({ ok: false, error: "jobId is required" });
+        return;
+      }
+
+      const job = await completeAgentJob({
+        agentId: agent.agentId,
+        jobId,
+        result: jsonValueOrEmptyObject(payload.result),
+      });
+
+      ack?.(
+        job
+          ? { ok: true }
+          : { ok: false, error: "Job is not active for this agent" },
+      );
+
+      if (job) {
+        await dispatchQueuedJobs(socket, agent);
+      }
+    },
+  );
+
+  socket.on(
+    "job.failed",
+    async (payload: AgentJobEventPayload = {}, ack?: (response: unknown) => void) => {
+      const jobId = getJobId(payload);
+
+      if (!jobId) {
+        ack?.({ ok: false, error: "jobId is required" });
+        return;
+      }
+
+      const job = await failAgentJob({
+        agentId: agent.agentId,
+        jobId,
+        error: optionalString(payload.error),
+        result: jsonValueOrEmptyObject(payload.result),
+      });
+
+      ack?.(
+        job
+          ? { ok: true, status: job.status }
+          : { ok: false, error: "Job is not active for this agent" },
+      );
+
+      if (job?.status === "Queued") {
+        await dispatchQueuedJobs(socket, agent);
+      }
+    },
+  );
+}
+
 export function setupAgentSockets(httpServer: HttpServer) {
   const io = new SocketIoServer(httpServer, {
     cors: {
@@ -311,6 +493,7 @@ export function setupAgentSockets(httpServer: HttpServer) {
     },
   });
   const agents = io.of("/agents");
+  agentNamespace = agents;
 
   agents.use(async (socket, next) => {
     const token = getSocketToken(socket);
@@ -341,6 +524,8 @@ export function setupAgentSockets(httpServer: HttpServer) {
     activeAgentSockets.set(agent.agentId, socket.id);
     await socket.join([`agent:${agent.agentId}`, `server:${agent.serverId}`]);
     await markAgentOnline(agent);
+    registerJobHandlers(socket, agent);
+    await dispatchQueuedJobs(socket, agent);
 
     socket.on(
       "agent.heartbeat",

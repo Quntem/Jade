@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ComponentType } from "react";
 import {
   DockviewReact,
   IDockviewHeaderActionsProps,
@@ -39,6 +40,7 @@ const panelIcons = {
 };
 
 type PanelIconName = keyof typeof panelIcons;
+type PanelIcon = ComponentType<{ size?: number }>;
 type PanelParams = {
   text: string;
   icon?: PanelIconName;
@@ -53,7 +55,7 @@ function DefaultTab(params: IDockviewPanelHeaderProps<PanelParams>) {
   params.api.onDidParametersChange(() => {
     setIcon(params.params.icon ? panelIcons[params.params.icon] : null);
   });
-  const [Icon, setIcon] = useState<PanelIconName | null>(params.params.icon ? panelIcons[params.params.icon] : null);
+  const [Icon, setIcon] = useState<PanelIcon | null>(params.params.icon ? panelIcons[params.params.icon] : null);
 
   return (
       <div style={{

@@ -3,6 +3,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group"
 import { useEffect, useState } from "react";
 import { AccessTokens } from "./accessTokens";
 import { IDockviewPanelProps } from "dockview-react";
+import { Servers } from "./servers";
 
 export function ServersPanel(props: IDockviewPanelProps) {
     const [tab, setTab] = useState<'servers' | 'access-tokens'>('servers');
@@ -38,7 +39,7 @@ export function ServersPanel(props: IDockviewPanelProps) {
                     <TabItem Icon={KeyIcon} text="Access Tokens" active={tab === 'access-tokens'} onClick={() => setTab('access-tokens')} />
                 </div>
             </div>
-            {tab === 'servers' ? <div>Servers</div> : <AccessTokens {...props} />}
+            {tab === 'servers' ? <Servers {...props} /> : <AccessTokens {...props} />}
         </div>
     </div>;
 }
