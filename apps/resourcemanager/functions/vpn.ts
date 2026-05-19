@@ -411,10 +411,7 @@ export async function renderSpokeConfig(options: VpnPeerLookupOptions) {
     hubId: peer.hubId,
     scopeId: server.scopeId,
   });
-  const allowedIps = [
-    `${peer.tunnelIp}/32`,
-    ...sameScopePeers.map((sameScopePeer) => `${sameScopePeer.tunnelIp}/32`),
-  ];
+  const allowedIps = sameScopePeers.map((sameScopePeer) => `${sameScopePeer.tunnelIp}/32`);
   const endpoint = `${peer.hub.endpointHost}:${peer.hub.endpointPort}`;
   const renderedConfig = [
     "[Interface]",
@@ -424,7 +421,7 @@ export async function renderSpokeConfig(options: VpnPeerLookupOptions) {
     "[Peer]",
     `PublicKey = ${peer.hub.publicKey}`,
     `Endpoint = ${endpoint}`,
-    `AllowedIPs = ${allowedIps.join(", ")}`,
+    ...(allowedIps.length > 0 ? [`AllowedIPs = ${allowedIps.join(", ")}`] : []),
     `PersistentKeepalive = ${DEFAULT_PERSISTENT_KEEPALIVE}`,
     "",
   ].join("\n");

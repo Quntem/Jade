@@ -4,6 +4,7 @@ import wireguardTools from "wireguard-tools.js";
 
 const DEFAULT_OUTPUT_DIR = join(String(Bun.env.HOME ?? "."), ".jade", "vpn-hub");
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
+const DEFAULT_WIREGUARD_INTERFACE = "jade-hub0";
 
 type HubState = {
   hub: {
@@ -34,8 +35,10 @@ type RuntimeConfig = {
   hubId: string;
   hubToken: string;
   outputDir: string;
+  interfaceName: string;
   syncIntervalMs: number;
   once: boolean;
+  apply: boolean;
 };
 
 type InitConfig = {
@@ -52,8 +55,10 @@ function getRuntimeConfig(): RuntimeConfig {
     hubId: requiredEnv("JADE_VPN_HUB_ID"),
     hubToken: requiredEnv("JADE_VPN_HUB_TOKEN"),
     outputDir: Bun.env.JADE_VPN_HUB_OUTPUT_DIR || DEFAULT_OUTPUT_DIR,
+    interfaceName: Bun.env.JADE_WIREGUARD_INTERFACE?.trim() || DEFAULT_WIREGUARD_INTERFACE,
     syncIntervalMs: getDurationMs(),
     once: Bun.env.JADE_VPN_HUB_ONCE === "true",
+    apply: Bun.env.JADE_VPN_HUB_APPLY === "true",
   };
 }
 
@@ -269,6 +274,58 @@ async function chmodPrivateKey(path: string) {
   await chmod.exited;
 }
 
+async function runCommand(command: string, args: string[]) {
+  const child = Bun.spawn([command, ...args], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [exitCode, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed: ${stderr.trim()}`);
+  }
+}
+
+async function applyHubConfig({
+  config,
+  state,
+  privateKey,
+}: {
+  config: RuntimeConfig;
+  state: HubState;
+  privateKey: string;
+}) {
+  if (process.platform !== "linux") {
+    throw new Error("Live VPN hub apply is only supported on Linux right now");
+  }
+
+  await wireguardTools.setConfig(config.interfaceName, {
+    privateKey,
+    portListen: state.hub.endpointPort,
+    replacePeers: true,
+    peers: Object.fromEntries(
+      state.peers.map((peer) => [
+        peer.publicKey,
+        {
+          allowedIPs: peer.allowedIps,
+        },
+      ]),
+    ),
+  });
+  await runCommand("ip", ["link", "set", "dev", config.interfaceName, "up"]);
+
+  for (const peer of state.peers) {
+    for (const allowedIp of peer.allowedIps) {
+      await runCommand("ip", ["route", "replace", allowedIp, "dev", config.interfaceName]);
+    }
+  }
+
+  await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+}
+
 function renderRoutingPlan(state: HubState) {
   const peersByScope = new Map<string, HubPeer[]>();
 
@@ -333,6 +390,14 @@ async function writeRenderedState(config: RuntimeConfig, state: HubState) {
     Bun.write(join(config.outputDir, "routing-plan.txt"), routingPlan),
     Bun.write(join(config.outputDir, "summary.json"), summary),
   ]);
+
+  if (config.apply) {
+    await applyHubConfig({
+      config,
+      state,
+      privateKey: hubKeyPair.privateKey,
+    });
+  }
 }
 
 async function initHub() {
@@ -352,6 +417,8 @@ async function initHub() {
     `JADE_VPN_HUB_OUTPUT_DIR=${config.outputDir}`,
     `JADE_VPN_HUB_ENDPOINT_HOST=${config.endpointHost}`,
     `JADE_VPN_HUB_ENDPOINT_PORT=${config.endpointPort}`,
+    "JADE_VPN_HUB_APPLY=false",
+    `JADE_WIREGUARD_INTERFACE=${DEFAULT_WIREGUARD_INTERFACE}`,
     "",
   ].join("\n");
 

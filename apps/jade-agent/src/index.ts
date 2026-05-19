@@ -7,6 +7,7 @@ import wireguardTools from "wireguard-tools.js";
 const DEFAULT_CONFIG_PATH = join(String(Bun.env.HOME ?? "."), ".jade", "agent.json");
 const DEFAULT_VPN_CONFIG_DIR = join(String(Bun.env.HOME ?? "."), ".jade", "vpn");
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
+const DEFAULT_WIREGUARD_INTERFACE = "jade0";
 const AGENT_NAME = "jade-agent";
 const AGENT_VERSION = "0.1.0";
 
@@ -62,6 +63,14 @@ function getConfigPath() {
 
 function getVpnConfigDir() {
   return Bun.env.JADE_VPN_CONFIG_DIR || DEFAULT_VPN_CONFIG_DIR;
+}
+
+function getWireGuardInterfaceName() {
+  return Bun.env.JADE_WIREGUARD_INTERFACE?.trim() || DEFAULT_WIREGUARD_INTERFACE;
+}
+
+function shouldApplyVpnConfig() {
+  return Bun.env.JADE_VPN_APPLY === "true";
 }
 
 function getControlUrl() {
@@ -141,7 +150,7 @@ function collectEnrollmentFacts(keyPair: WireGuardKeyPair) {
       jobs: ["ConfigureVpn"],
       vpn: {
         wireguard: true,
-        applyMode: "dry-run",
+        applyMode: shouldApplyVpnConfig() ? "apply" : "dry-run",
       },
     },
     metadata: {
@@ -218,7 +227,7 @@ function createHeartbeatPayload(config: AgentConfig) {
       jobs: ["ConfigureVpn"],
       vpn: {
         wireguard: true,
-        applyMode: "dry-run",
+        applyMode: shouldApplyVpnConfig() ? "apply" : "dry-run",
       },
     },
     metadata: {
@@ -302,12 +311,62 @@ async function writeDryRunVpnConfig({
   await Bun.write(configPath, normalizedConfig);
   await chmodConfig(configPath);
 
-  return configPath;
+  return {
+    configPath,
+    parsedConfig,
+  };
+}
+
+async function runCommand(command: string, args: string[]) {
+  const child = Bun.spawn([command, ...args], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [exitCode, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed: ${stderr.trim()}`);
+  }
+}
+
+async function applyVpnConfig({
+  payload,
+  parsedConfig,
+}: {
+  payload: ReturnType<typeof parseConfigureVpnPayload>;
+  parsedConfig: ReturnType<typeof wireguardTools.wgQuick.parse>;
+}) {
+  if (process.platform !== "linux") {
+    throw new Error("Live VPN apply is only supported on Linux right now");
+  }
+
+  const interfaceName = getWireGuardInterfaceName();
+
+  await wireguardTools.setConfig(interfaceName, {
+    privateKey: parsedConfig.privateKey,
+    replacePeers: true,
+    peers: parsedConfig.peers,
+  });
+  await runCommand("ip", ["address", "replace", `${payload.tunnelIp}/32`, "dev", interfaceName]);
+  await runCommand("ip", ["link", "set", "dev", interfaceName, "up"]);
+
+  for (const allowedIp of payload.allowedIps) {
+    await runCommand("ip", ["route", "replace", allowedIp, "dev", interfaceName]);
+  }
 }
 
 async function handleConfigureVpnJob(socket: Socket, config: AgentConfig, job: AgentJob) {
   const payload = parseConfigureVpnPayload(job.payload);
-  const configPath = await writeDryRunVpnConfig({ config, payload });
+  const { configPath, parsedConfig } = await writeDryRunVpnConfig({ config, payload });
+  const applyEnabled = shouldApplyVpnConfig();
+
+  if (applyEnabled) {
+    await applyVpnConfig({ payload, parsedConfig });
+  }
+
   const nextConfig = {
     ...config,
     lastVpnConfigRevisionId: payload.configRevisionId,
@@ -318,13 +377,15 @@ async function handleConfigureVpnJob(socket: Socket, config: AgentConfig, job: A
   socket.emit("job.completed", {
     jobId: job.id,
     result: {
-      dryRun: true,
-      mode: payload.mode,
+      dryRun: !applyEnabled,
+      applied: applyEnabled,
+      mode: applyEnabled ? "apply" : payload.mode,
       configRevisionId: payload.configRevisionId,
       tunnelIp: payload.tunnelIp,
       hubEndpoint: payload.hubEndpoint,
       allowedIps: payload.allowedIps,
       storedConfigPath: configPath,
+      interfaceName: getWireGuardInterfaceName(),
       receivedAt: new Date().toISOString(),
     },
   });
