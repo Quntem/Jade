@@ -15,7 +15,7 @@ import {
 } from "dockview-react";
 import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from "./ui/empty";
 import { Button } from "./ui/button";
-import { HardDriveIcon, Maximize2, PlusIcon, ServerIcon, ShapesIcon, TerminalIcon, X, XIcon } from "lucide-react";
+import { HardDriveIcon, KeyIcon, Maximize2, PlusIcon, ServerIcon, ShapesIcon, TerminalIcon, X, XIcon } from "lucide-react";
 import { WebShell } from "./webshell/webshell";
 import { ChatKitUi } from "./chatkit";
 import { useAppContext } from "@/lib/appContext";
@@ -23,6 +23,7 @@ import { Sidebar } from "./sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { StorageExplorer } from "./storage/explorer";
 import { DeploymentProcessUi } from "./deployment/deploymentProcess";
+import { AccessTokens, createAccessToken } from "./servers/accessTokens";
 
 
 const DOCKVIEW_LAYOUTS_STORAGE_KEY = "dockview-layouts";
@@ -33,6 +34,7 @@ const panelIcons = {
   terminal: TerminalIcon,
   hardDrive: HardDriveIcon,
   shapes: ShapesIcon,
+  key: KeyIcon,
 };
 
 type PanelIconName = keyof typeof panelIcons;
@@ -80,7 +82,7 @@ function DefaultTab(params: IDockviewPanelHeaderProps<PanelParams>) {
     );
 }
 
-function addNewTab(api: DockviewApi, referenceGroup?: IDockviewHeaderActionsProps["group"], component: string = "default", params: PanelParams = { text: "Drag tabs to rearrange the layout.", icon: "server" }) {
+export function addNewTab(api: DockviewApi, referenceGroup?: IDockviewHeaderActionsProps["group"], component: string = "default", params: PanelParams = { text: "Drag tabs to rearrange the layout.", icon: "server" }) {
   const panelId = `Untitled-${Date.now()}`;
 
   api.addPanel({
@@ -124,6 +126,9 @@ function NewTabButton({
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "deploymentProcess", { text: "Deployment Process", icon: "shapes" })}>
           Deployment Process
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "accessTokens", { text: "Access Tokens", icon: "key" })}>
+          Access Tokens
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -170,6 +175,8 @@ const components = {
   chatkit: ChatKitUi,
   storageExplorer: StorageExplorer,
   deploymentProcess: DeploymentProcessUi,
+  accessTokens: AccessTokens,
+  accessTokens_create: createAccessToken,
 };
 
 const tabComponents = {

@@ -171,6 +171,7 @@ model ResourceScope {
   resources Resource[]
   deployments Deployment[]
   targets DeploymentTarget[]
+  enrollmentTokens EnrollmentToken[]
   auditLogs AuditLog[]
   secrets Secret[]
 
@@ -339,11 +340,58 @@ model Agent {
   deletedAt DateTime?
 
   jobs AgentJob[]
+  credentials AgentCredential[]
 
   @@index([serverId])
   @@index([status])
   @@index([lastSeenAt])
   @@map("agents")
+}
+
+model EnrollmentToken {
+  id String @id @default(cuid())
+
+  tokenHash String @unique
+
+  name String
+  description String?
+
+  scopeId String
+  scope ResourceScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  createdBy String
+
+  expiresAt DateTime
+  usedAt DateTime?
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scopeId])
+  @@index([expiresAt])
+  @@index([usedAt])
+  @@index([revokedAt])
+  @@map("enrollment_tokens")
+}
+
+model AgentCredential {
+  id String @id @default(cuid())
+
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique
+
+  lastUsedAt DateTime?
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([revokedAt])
+  @@map("agent_credentials")
 }
 
 model ServerCapability {

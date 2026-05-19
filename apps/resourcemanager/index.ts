@@ -1,4 +1,6 @@
 import express from "express";
+import agentsRouter from "./routers/agents";
+import enrollmentTokensRouter from "./routers/enrollmentTokens";
 import scopesRouter from "./routers/scopes";
 import storageExplorerRouter from "./routers/storageexplorer";
 
@@ -29,6 +31,10 @@ app.use((req, _res, next) => {
 });
 
 app.use("/v1/scopes", scopesRouter);
+
+app.use("/v1/enrollment-tokens", enrollmentTokensRouter);
+
+app.use("/v1/agents", agentsRouter);
 
 app.use("/v1/storageexplorer", storageExplorerRouter);
 
