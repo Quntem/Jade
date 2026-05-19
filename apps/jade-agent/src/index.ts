@@ -1,8 +1,8 @@
-import { generateKeyPairSync } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { hostname, machine, platform, type } from "node:os";
 import { dirname, join } from "node:path";
 import { io, type Socket } from "socket.io-client";
+import wireguardTools from "wireguard-tools.js";
 
 const DEFAULT_CONFIG_PATH = join(String(Bun.env.HOME ?? "."), ".jade", "agent.json");
 const DEFAULT_VPN_CONFIG_DIR = join(String(Bun.env.HOME ?? "."), ".jade", "vpn");
@@ -108,21 +108,8 @@ async function chmodConfig(configPath: string) {
   await chmod.exited;
 }
 
-function generateWireGuardKeyPair(): WireGuardKeyPair {
-  const keyPair = generateKeyPairSync("x25519");
-  const privateDer = keyPair.privateKey.export({
-    format: "der",
-    type: "pkcs8",
-  });
-  const publicDer = keyPair.publicKey.export({
-    format: "der",
-    type: "spki",
-  });
-
-  return {
-    privateKey: Buffer.from(privateDer).subarray(-32).toString("base64"),
-    publicKey: Buffer.from(publicDer).subarray(-32).toString("base64"),
-  };
+async function generateWireGuardKeyPair(): Promise<WireGuardKeyPair> {
+  return await wireguardTools.key.genKey();
 }
 
 async function ensureWireGuardKeys(config: AgentConfig) {
@@ -130,7 +117,7 @@ async function ensureWireGuardKeys(config: AgentConfig) {
     return config;
   }
 
-  const keyPair = generateWireGuardKeyPair();
+  const keyPair = await generateWireGuardKeyPair();
   const nextConfig = {
     ...config,
     wireguardPrivateKey: keyPair.privateKey,
@@ -215,7 +202,7 @@ async function loadOrEnrollConfig() {
     });
   }
 
-  const keyPair = generateWireGuardKeyPair();
+  const keyPair = await generateWireGuardKeyPair();
   return await enroll(controlUrl, keyPair);
 }
 
@@ -308,9 +295,11 @@ async function writeDryRunVpnConfig({
     "<agent-local-wireguard-private-key>",
     config.wireguardPrivateKey,
   );
+  const parsedConfig = wireguardTools.wgQuick.parse(renderedConfig);
+  const normalizedConfig = wireguardTools.wgQuick.stringify(parsedConfig);
 
   await mkdir(configDir, { recursive: true });
-  await Bun.write(configPath, renderedConfig);
+  await Bun.write(configPath, normalizedConfig);
   await chmodConfig(configPath);
 
   return configPath;
