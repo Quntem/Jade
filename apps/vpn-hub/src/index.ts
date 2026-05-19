@@ -39,6 +39,7 @@ type RuntimeConfig = {
   syncIntervalMs: number;
   once: boolean;
   apply: boolean;
+  applyBackend: string;
 };
 
 type InitConfig = {
@@ -59,6 +60,7 @@ function getRuntimeConfig(): RuntimeConfig {
     syncIntervalMs: getDurationMs(),
     once: Bun.env.JADE_VPN_HUB_ONCE === "true",
     apply: Bun.env.JADE_VPN_HUB_APPLY === "true",
+    applyBackend: Bun.env.JADE_VPN_HUB_APPLY_BACKEND?.trim() || "networkmanager",
   };
 }
 
@@ -279,14 +281,35 @@ async function runCommand(command: string, args: string[]) {
     stderr: "pipe",
     stdout: "pipe",
   });
-  const [exitCode, stderr] = await Promise.all([
+  const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
+    new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
 
   if (exitCode !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed: ${stderr.trim()}`);
   }
+
+  return stdout.trim();
+}
+
+async function runOptionalCommand(command: string, args: string[]) {
+  const child = Bun.spawn([command, ...args], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+
+  return {
+    ok: exitCode === 0,
+    stdout: stdout.trim(),
+    stderr: stderr.trim(),
+  };
 }
 
 async function applyHubConfig({
@@ -302,10 +325,15 @@ async function applyHubConfig({
     throw new Error("Live VPN hub apply is only supported on Linux right now");
   }
 
-  await wireguardTools.setConfig(config.interfaceName, {
+  if (config.applyBackend !== "networkmanager") {
+    throw new Error(`Unsupported VPN hub apply backend: ${config.applyBackend}`);
+  }
+
+  const networkManagerConfigPath = join(config.outputDir, `${config.interfaceName}.conf`);
+  const networkManagerConfig = wireguardTools.wgQuick.stringify({
     privateKey,
     portListen: state.hub.endpointPort,
-    replacePeers: true,
+    DNS: [],
     peers: Object.fromEntries(
       state.peers.map((peer) => [
         peer.publicKey,
@@ -315,14 +343,34 @@ async function applyHubConfig({
       ]),
     ),
   });
-  await runCommand("ip", ["link", "set", "dev", config.interfaceName, "up"]);
 
-  for (const peer of state.peers) {
-    for (const allowedIp of peer.allowedIps) {
-      await runCommand("ip", ["route", "replace", allowedIp, "dev", config.interfaceName]);
-    }
-  }
-
+  await Bun.write(networkManagerConfigPath, networkManagerConfig);
+  await chmodPrivateKey(networkManagerConfigPath);
+  await runCommand("nmcli", ["--version"]);
+  await runOptionalCommand("nmcli", ["connection", "down", config.interfaceName]);
+  await runOptionalCommand("nmcli", ["connection", "delete", config.interfaceName]);
+  await runCommand("nmcli", [
+    "connection",
+    "import",
+    "type",
+    "wireguard",
+    "file",
+    networkManagerConfigPath,
+  ]);
+  await runOptionalCommand("nmcli", [
+    "connection",
+    "modify",
+    config.interfaceName,
+    "connection.interface-name",
+    config.interfaceName,
+    "connection.autoconnect",
+    "yes",
+    "ipv4.method",
+    "disabled",
+    "ipv6.method",
+    "disabled",
+  ]);
+  await runCommand("nmcli", ["connection", "up", config.interfaceName]);
   await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
 }
 
@@ -418,6 +466,7 @@ async function initHub() {
     `JADE_VPN_HUB_ENDPOINT_HOST=${config.endpointHost}`,
     `JADE_VPN_HUB_ENDPOINT_PORT=${config.endpointPort}`,
     "JADE_VPN_HUB_APPLY=false",
+    "JADE_VPN_HUB_APPLY_BACKEND=networkmanager",
     `JADE_WIREGUARD_INTERFACE=${DEFAULT_WIREGUARD_INTERFACE}`,
     "",
   ].join("\n");
