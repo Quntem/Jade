@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, KeyIcon, PlusIcon, SettingsIcon, XIcon } from "lucide-react";
+import { CheckIcon, ColumnsIcon, KeyIcon, PlusIcon, SettingsIcon, XIcon } from "lucide-react";
 import { flexRender, getCoreRowModel, type Table as ReactTable, useReactTable } from "@tanstack/react-table";
 import {
     Table,
@@ -19,50 +19,75 @@ import { Field, FieldDescription, FieldTitle } from "../ui/field";
 import { Input } from "../ui/input";
 import { useState } from "react";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
+
+const columns = [
+    {
+        accessorKey: "name",
+        header: "Name",
+        id: "name",
+    },
+    {
+        accessorKey: "description",
+        header: "Description",
+        id: "description",
+        cell: ({ getValue }) => getValue<string | null>() || "-",
+    },
+    {
+        accessorKey: "scopeId",
+        header: "Scope ID",
+        id: "scopeId",
+    },
+    {
+        accessorKey: "createdBy",
+        header: "Created By",
+        id: "createdBy",
+    },
+    {
+        accessorKey: "expiresAt",
+        header: "Expires At",
+        id: "expiresAt",
+        meta: {
+            defaultHidden: true,
+        },
+    },
+    {
+        accessorKey: "usedAt",
+        header: "Used At",
+        id: "usedAt",
+        meta: {
+            defaultHidden: true,
+        },
+    },
+    {
+        accessorKey: "revokedAt",
+        header: "Revoked At",
+        id: "revokedAt",
+        meta: {
+            defaultHidden: true,
+        },
+    },
+    {
+        accessorKey: "createdAt",
+        header: "Created At",
+        id: "createdAt",
+    },
+    {
+        accessorKey: "updatedAt",
+        header: "Updated At",
+        id: "updatedAt",
+        meta: {
+            defaultHidden: true,
+        },
+    },
+];
 
 export function AccessTokens(props: IDockviewPanelProps) {
+    const [enabledColumns, setEnabledColumns] = useState<Array<string>>(Array.from(columns).filter((column) => !column.meta?.defaultHidden).map((column) => column.id));
     const accessTokens = useAccessTokens();
     const table = useReactTable({
         data: accessTokens.data || [],
-        columns: [
-            {
-                accessorKey: "name",
-                header: "Name",
-            },
-            {
-                accessorKey: "description",
-                header: "Description",
-                cell: ({ getValue }) => getValue<string | null>() || "-",
-            },
-            {
-                accessorKey: "scopeId",
-                header: "Scope ID",
-            },
-            {
-                accessorKey: "createdBy",
-                header: "Created By",
-            },
-            {
-                accessorKey: "expiresAt",
-                header: "Expires At",
-            },
-            {
-                accessorKey: "usedAt",
-                header: "Used At",
-            },
-            {
-                accessorKey: "revokedAt",
-                header: "Revoked At",
-            },
-            {
-                accessorKey: "createdAt",
-                header: "Created At",
-            },
-            {
-                accessorKey: "updatedAt",
-                header: "Updated At",
-            },
-        ],
+        columns: columns.filter((column) => enabledColumns.includes(column.id)),
         getCoreRowModel: getCoreRowModel(),
     });
 
@@ -75,11 +100,18 @@ export function AccessTokens(props: IDockviewPanelProps) {
                 </div>
                 <div className="text-sm text-[#999999]">Access Tokens Explorer</div>
             </div>
-            <div className="ml-auto">
+            {/* <div className="ml-auto">
                 <Button onClick={() => {
                     addNewTab(props.containerApi, props.api.group!, "accessTokens_create", { text: "Create Access Token", icon: "key" });
                 }}><PlusIcon />Create Access Token</Button>
-            </div>
+            </div> */}
+        </div>
+        <div className="flex flex-row h-[40px] items-center px-1 border-b-1 border-[#e4e4e7]">
+            <Button size="sm" variant={"ghost"} onClick={() => {
+                addNewTab(props.containerApi, props.api.group!, "accessTokens_create", { text: "Create Access Token", icon: "key" });
+            }}><PlusIcon />Create Access Token</Button>
+            <div className="flex-1" />
+            <ColumnSelector enabledColumns={enabledColumns} setEnabledColumns={setEnabledColumns} />
         </div>
         <div className="flex flex-col gap-2 p-4">
             <AccessTokensTable
@@ -89,6 +121,27 @@ export function AccessTokens(props: IDockviewPanelProps) {
             />
         </div>
     </div>;
+}
+
+function ColumnSelector({ enabledColumns, setEnabledColumns }: { enabledColumns: Array<string>; setEnabledColumns: (columns: Array<string>) => void }) {
+    return <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm"><ColumnsIcon />Select Columns</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+            {columns.map((column) => (
+                <DropdownMenuCheckboxItem onClick={(e) => e.stopPropagation()} checked={enabledColumns.includes(column.id)} onCheckedChange={(checked) => {
+                    if (checked) {
+                        setEnabledColumns([...enabledColumns, column.id]);
+                    } else {
+                        setEnabledColumns(enabledColumns.filter((id) => id !== column.id));
+                    }
+                }} key={column.id}>
+                    {column.header}
+                </DropdownMenuCheckboxItem>
+            ))}
+        </DropdownMenuContent>
+    </DropdownMenu>;
 }
 
 function AccessTokensTable({
