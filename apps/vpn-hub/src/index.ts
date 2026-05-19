@@ -223,6 +223,7 @@ function renderWireGuardConfig(state: HubState, privateKey: string) {
   const rendered = wireguardTools.wgQuick.stringify({
     privateKey,
     portListen: state.hub.endpointPort,
+    DNS: [],
     peers: Object.fromEntries(
       state.peers.map((peer) => [
         peer.publicKey,
@@ -343,6 +344,8 @@ async function applyHubConfig({
         ]),
       ),
     });
+
+    await runCommand("ip", ["link", "set", "dev", config.interfaceName, "up"]);
 
     for (const peer of state.peers) {
       for (const allowedIp of peer.allowedIps) {

@@ -313,18 +313,15 @@ async function writeDryRunVpnConfig({
     config.wireguardPrivateKey,
   );
   const parsedConfig = wireguardTools.wgQuick.parse(renderedConfig);
-  const normalizedConfig = wireguardTools.wgQuick.stringify({
-    ...parsedConfig,
-    DNS: parsedConfig.DNS ?? [],
-  });
 
   await mkdir(configDir, { recursive: true });
-  await Bun.write(configPath, normalizedConfig);
+  await Bun.write(configPath, renderedConfig);
   await chmodConfig(configPath);
 
   return {
     configPath,
     parsedConfig,
+    renderedConfig,
   };
 }
 
@@ -367,9 +364,11 @@ async function runOptionalCommand(command: string, args: string[]) {
 async function applyVpnConfig({
   payload,
   parsedConfig,
+  renderedConfig,
 }: {
   payload: ReturnType<typeof parseConfigureVpnPayload>;
   parsedConfig: ReturnType<typeof wireguardTools.wgQuick.parse>;
+  renderedConfig: string;
 }) {
   if (process.platform !== "linux") {
     throw new Error("Live VPN apply is only supported on Linux right now");
@@ -379,10 +378,18 @@ async function applyVpnConfig({
   const backend = getVpnApplyBackend();
 
   if (isWireGuardToolsBackend(backend)) {
+    const keepaliveStr = renderedConfig.match(/^\s*PersistentKeepalive\s*=\s*(\d+)\s*$/im)?.[1];
+    const keepInterval = keepaliveStr !== undefined ? parseInt(keepaliveStr, 10) : undefined;
+
     await wireguardTools.setConfig(interfaceName, {
       privateKey: parsedConfig.privateKey,
       replacePeers: true,
-      peers: parsedConfig.peers,
+      peers: Object.fromEntries(
+        Object.entries(parsedConfig.peers).map(([pubKey, peer]) => [
+          pubKey,
+          keepInterval !== undefined ? { ...peer, keepInterval } : peer,
+        ]),
+      ),
     });
     await runCommand("ip", ["address", "replace", `${payload.tunnelIp}/32`, "dev", interfaceName]);
     await runCommand("ip", ["link", "set", "dev", interfaceName, "up"]);
@@ -403,13 +410,8 @@ async function applyVpnConfig({
 
   const configDir = getVpnConfigDir();
   const networkManagerConfigPath = join(configDir, `${interfaceName}.conf`);
-  const networkManagerConfig = wireguardTools.wgQuick.stringify({
-    ...parsedConfig,
-    Address: [`${payload.tunnelIp}/32`],
-    DNS: parsedConfig.DNS ?? [],
-  });
 
-  await Bun.write(networkManagerConfigPath, networkManagerConfig);
+  await Bun.write(networkManagerConfigPath, renderedConfig);
   await chmodConfig(networkManagerConfigPath);
 
   await runCommand("nmcli", ["--version"]);
@@ -442,12 +444,12 @@ async function applyVpnConfig({
 
 async function handleConfigureVpnJob(socket: Socket, config: AgentConfig, job: AgentJob) {
   const payload = parseConfigureVpnPayload(job.payload);
-  const { configPath, parsedConfig } = await writeDryRunVpnConfig({ config, payload });
+  const { configPath, parsedConfig, renderedConfig } = await writeDryRunVpnConfig({ config, payload });
   const applyEnabled = shouldApplyVpnConfig();
   let applyResult: Awaited<ReturnType<typeof applyVpnConfig>> | null = null;
 
   if (applyEnabled) {
-    applyResult = await applyVpnConfig({ payload, parsedConfig });
+    applyResult = await applyVpnConfig({ payload, parsedConfig, renderedConfig });
   }
 
   const nextConfig = {
