@@ -73,6 +73,10 @@ function shouldApplyVpnConfig() {
   return Bun.env.JADE_VPN_APPLY === "true";
 }
 
+function getVpnApplyBackend() {
+  return Bun.env.JADE_VPN_APPLY_BACKEND?.trim() || "networkmanager";
+}
+
 function getControlUrl() {
   const controlUrl = Bun.env.JADE_CONTROL_URL?.trim();
 
@@ -305,7 +309,10 @@ async function writeDryRunVpnConfig({
     config.wireguardPrivateKey,
   );
   const parsedConfig = wireguardTools.wgQuick.parse(renderedConfig);
-  const normalizedConfig = wireguardTools.wgQuick.stringify(parsedConfig);
+  const normalizedConfig = wireguardTools.wgQuick.stringify({
+    ...parsedConfig,
+    DNS: parsedConfig.DNS ?? [],
+  });
 
   await mkdir(configDir, { recursive: true });
   await Bun.write(configPath, normalizedConfig);
@@ -322,14 +329,35 @@ async function runCommand(command: string, args: string[]) {
     stderr: "pipe",
     stdout: "pipe",
   });
-  const [exitCode, stderr] = await Promise.all([
+  const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
+    new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
 
   if (exitCode !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed: ${stderr.trim()}`);
   }
+
+  return stdout.trim();
+}
+
+async function runOptionalCommand(command: string, args: string[]) {
+  const child = Bun.spawn([command, ...args], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+
+  return {
+    ok: exitCode === 0,
+    stdout: stdout.trim(),
+    stderr: stderr.trim(),
+  };
 }
 
 async function applyVpnConfig({
@@ -344,27 +372,59 @@ async function applyVpnConfig({
   }
 
   const interfaceName = getWireGuardInterfaceName();
+  const backend = getVpnApplyBackend();
 
-  await wireguardTools.setConfig(interfaceName, {
-    privateKey: parsedConfig.privateKey,
-    replacePeers: true,
-    peers: parsedConfig.peers,
-  });
-  await runCommand("ip", ["address", "replace", `${payload.tunnelIp}/32`, "dev", interfaceName]);
-  await runCommand("ip", ["link", "set", "dev", interfaceName, "up"]);
-
-  for (const allowedIp of payload.allowedIps) {
-    await runCommand("ip", ["route", "replace", allowedIp, "dev", interfaceName]);
+  if (backend !== "networkmanager") {
+    throw new Error(`Unsupported VPN apply backend: ${backend}`);
   }
+
+  const configDir = getVpnConfigDir();
+  const networkManagerConfigPath = join(configDir, `${interfaceName}.conf`);
+  const networkManagerConfig = wireguardTools.wgQuick.stringify({
+    ...parsedConfig,
+    Address: [`${payload.tunnelIp}/32`],
+    DNS: parsedConfig.DNS ?? [],
+  });
+
+  await Bun.write(networkManagerConfigPath, networkManagerConfig);
+  await chmodConfig(networkManagerConfigPath);
+
+  await runCommand("nmcli", ["--version"]);
+  await runOptionalCommand("nmcli", ["connection", "down", interfaceName]);
+  await runOptionalCommand("nmcli", ["connection", "delete", interfaceName]);
+  await runCommand("nmcli", [
+    "connection",
+    "import",
+    "type",
+    "wireguard",
+    "file",
+    networkManagerConfigPath,
+  ]);
+  await runOptionalCommand("nmcli", [
+    "connection",
+    "modify",
+    interfaceName,
+    "connection.interface-name",
+    interfaceName,
+    "connection.autoconnect",
+    "yes",
+  ]);
+  await runCommand("nmcli", ["connection", "up", interfaceName]);
+
+  return {
+    backend,
+    networkManagerConfigPath,
+  };
 }
 
 async function handleConfigureVpnJob(socket: Socket, config: AgentConfig, job: AgentJob) {
   const payload = parseConfigureVpnPayload(job.payload);
   const { configPath, parsedConfig } = await writeDryRunVpnConfig({ config, payload });
   const applyEnabled = shouldApplyVpnConfig();
+  let applyResult: Awaited<ReturnType<typeof applyVpnConfig>> | null = null;
 
   if (applyEnabled) {
-    await applyVpnConfig({ payload, parsedConfig });
+    applyResult = await applyVpnConfig({ payload, parsedConfig });
   }
 
   const nextConfig = {
@@ -385,6 +445,8 @@ async function handleConfigureVpnJob(socket: Socket, config: AgentConfig, job: A
       hubEndpoint: payload.hubEndpoint,
       allowedIps: payload.allowedIps,
       storedConfigPath: configPath,
+      applyBackend: applyResult?.backend ?? getVpnApplyBackend(),
+      networkManagerConfigPath: applyResult?.networkManagerConfigPath ?? null,
       interfaceName: getWireGuardInterfaceName(),
       receivedAt: new Date().toISOString(),
     },

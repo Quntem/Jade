@@ -25,15 +25,16 @@ It reports only the public key to Jade and stores dry-run VPN configs under
 `~/.jade/vpn` by default. Override the dry-run config directory with
 `JADE_VPN_CONFIG_DIR=/path/to/dir`.
 
-By default delivered VPN configs are dry-run only. To apply the WireGuard
-config on Linux, run the agent with:
+By default delivered VPN configs are dry-run only. On Fedora Silverblue and
+other NetworkManager-managed Linux hosts, run the agent with:
 
 ```bash
 JADE_VPN_APPLY=true \
+JADE_VPN_APPLY_BACKEND=networkmanager \
 JADE_WIREGUARD_INTERFACE=jade0 \
 bun run --cwd apps/jade-agent start
 ```
 
-Live apply uses `wireguard-tools.js` for the WireGuard device config and Linux
-`ip` commands for the interface address/routes, so it must run with permission
-to manage networking.
+Live apply uses `wireguard-tools.js` to validate/render the WireGuard config,
+then imports it with `nmcli connection import type wireguard file ...`. The
+agent process must have permission to manage NetworkManager connections.
