@@ -97,6 +97,10 @@ function isWireGuardToolsBackend(backend: string) {
   return backend === "wireguard-tools.js" || backend === "wireguard-tools";
 }
 
+function isWgQuickBackend(backend: string) {
+  return backend === "wg-quick";
+}
+
 function getInitEndpointPort() {
   const configured = Number(Bun.env.JADE_VPN_HUB_ENDPOINT_PORT);
   if (!Number.isInteger(configured) || configured < 1 || configured > 65535) {
@@ -254,6 +258,23 @@ function renderWireGuardConfig(state: HubState, privateKey: string) {
   ].join("\n");
 }
 
+function renderWgQuickConfig(state: HubState, privateKey: string) {
+  return wireguardTools.wgQuick.stringify({
+    privateKey,
+    Address: [HUB_TUNNEL_CIDR],
+    portListen: state.hub.endpointPort,
+    DNS: [],
+    peers: Object.fromEntries(
+      state.peers.map((peer) => [
+        peer.publicKey,
+        {
+          allowedIPs: peer.allowedIps,
+        },
+      ]),
+    ),
+  });
+}
+
 async function ensureHubKeyPair(outputDir: string) {
   const privateKeyPath = join(outputDir, "hub.privatekey");
   const existingPrivateKeyFile = Bun.file(privateKeyPath);
@@ -373,6 +394,20 @@ async function applyHubConfig({
 
     await runCommand("ip", ["link", "set", "dev", config.interfaceName, "up"]);
     await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
+    await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
+    await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+    return;
+  }
+
+  if (isWgQuickBackend(config.applyBackend)) {
+    const wgQuickConfigPath = join(config.outputDir, `${config.interfaceName}.conf`);
+    const wgQuickConfig = renderWgQuickConfig(state, privateKey);
+
+    await Bun.write(wgQuickConfigPath, wgQuickConfig);
+    await chmodPrivateKey(wgQuickConfigPath);
+    await runCommand("wg-quick", ["--version"]);
+    await runOptionalCommand("wg-quick", ["down", wgQuickConfigPath]);
+    await runCommand("wg-quick", ["up", wgQuickConfigPath]);
     await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
     await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
     return;
