@@ -322,6 +322,16 @@ async function runOptionalCommand(command: string, args: string[]) {
   };
 }
 
+async function replaceInterfaceRoutes(interfaceName: string, cidrs: string[]) {
+  for (const cidr of cidrs) {
+    await runCommand("ip", ["route", "replace", cidr, "dev", interfaceName]);
+  }
+}
+
+function getHubPeerRoutes(state: HubState) {
+  return [...new Set(state.peers.flatMap((peer) => peer.allowedIps))];
+}
+
 async function applyHubConfig({
   config,
   state,
@@ -354,6 +364,7 @@ async function applyHubConfig({
 
     await runCommand("ip", ["link", "set", "dev", config.interfaceName, "up"]);
     await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
+    await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
     await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
     return;
   }
@@ -410,6 +421,7 @@ async function applyHubConfig({
   await runOptionalCommand("nmcli", ["device", "set", config.interfaceName, "managed", "yes"]);
   await runCommand("nmcli", ["connection", "up", config.interfaceName]);
   await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
+  await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
   await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
 }
 

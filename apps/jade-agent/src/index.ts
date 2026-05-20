@@ -361,6 +361,12 @@ async function runOptionalCommand(command: string, args: string[]) {
   };
 }
 
+async function replaceInterfaceRoutes(interfaceName: string, cidrs: string[]) {
+  for (const cidr of cidrs) {
+    await runCommand("ip", ["route", "replace", cidr, "dev", interfaceName]);
+  }
+}
+
 async function applyVpnConfig({
   payload,
   parsedConfig,
@@ -393,6 +399,7 @@ async function applyVpnConfig({
     });
     await runCommand("ip", ["address", "replace", `${payload.tunnelIp}/32`, "dev", interfaceName]);
     await runCommand("ip", ["link", "set", "dev", interfaceName, "up"]);
+    await replaceInterfaceRoutes(interfaceName, payload.allowedIps);
 
     return {
       backend,
@@ -431,6 +438,7 @@ async function applyVpnConfig({
     "yes",
   ]);
   await runCommand("nmcli", ["connection", "up", interfaceName]);
+  await replaceInterfaceRoutes(interfaceName, payload.allowedIps);
 
   return {
     backend,
