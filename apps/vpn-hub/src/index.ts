@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import wireguardTools from "wireguard-tools.js";
 
@@ -6,6 +6,7 @@ const DEFAULT_OUTPUT_DIR = join(String(Bun.env.HOME ?? "."), ".jade", "vpn-hub")
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const DEFAULT_WIREGUARD_INTERFACE = "jade-hub0";
 const HUB_TUNNEL_CIDR = "100.64.0.0/32";
+const DEFAULT_WG_QUICK_DIR = "/etc/wireguard";
 
 let lastAppliedHubConfigFingerprint: string | null = null;
 
@@ -38,6 +39,7 @@ type RuntimeConfig = {
   hubId: string;
   hubToken: string;
   outputDir: string;
+  wgQuickConfigDir: string;
   interfaceName: string;
   syncIntervalMs: number;
   once: boolean;
@@ -59,6 +61,7 @@ function getRuntimeConfig(): RuntimeConfig {
     hubId: requiredEnv("JADE_VPN_HUB_ID"),
     hubToken: requiredEnv("JADE_VPN_HUB_TOKEN"),
     outputDir: Bun.env.JADE_VPN_HUB_OUTPUT_DIR || DEFAULT_OUTPUT_DIR,
+    wgQuickConfigDir: Bun.env.JADE_VPN_HUB_WG_QUICK_DIR?.trim() || DEFAULT_WG_QUICK_DIR,
     interfaceName: Bun.env.JADE_WIREGUARD_INTERFACE?.trim() || DEFAULT_WIREGUARD_INTERFACE,
     syncIntervalMs: getDurationMs(),
     once: Bun.env.JADE_VPN_HUB_ONCE === "true",
@@ -312,8 +315,7 @@ async function ensureHubKeyPair(outputDir: string) {
 }
 
 async function chmodPrivateKey(path: string) {
-  const chmod = Bun.spawn(["chmod", "600", path]);
-  await chmod.exited;
+  await chmod(path, 0o600);
 }
 
 async function runCommand(command: string, args: string[]) {
@@ -376,9 +378,10 @@ async function applyHubConfigWithWgQuick({
   state: HubState;
   privateKey: string;
 }) {
-  const wgQuickConfigPath = join(config.outputDir, `${config.interfaceName}.conf`);
+  const wgQuickConfigPath = join(config.wgQuickConfigDir, `${config.interfaceName}.conf`);
   const wgQuickConfig = renderWgQuickConfig(state, privateKey);
 
+  await mkdir(config.wgQuickConfigDir, { recursive: true });
   await Bun.write(wgQuickConfigPath, wgQuickConfig);
   await chmodPrivateKey(wgQuickConfigPath);
   await runOptionalCommand("wg-quick", ["down", wgQuickConfigPath]);

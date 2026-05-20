@@ -43,6 +43,7 @@ Useful optional settings:
 - `JADE_VPN_HUB_APPLY_BACKEND=networkmanager`
 - `JADE_VPN_HUB_APPLY_BACKEND=wireguard-tools.js`
 - `JADE_VPN_HUB_APPLY_BACKEND=wg-quick`
+- `JADE_VPN_HUB_WG_QUICK_DIR=/etc/wireguard`
 
 By default the hub only renders dry-run files. Live apply is Linux-only and
 uses `wireguard-tools.js` to validate/render the WireGuard config, then imports
@@ -55,5 +56,5 @@ The `wireguard-tools.js` backend bypasses NetworkManager and lets
 then uses Linux `ip` commands for routes and `sysctl` for forwarding.
 
 The `wg-quick` backend writes a standard WireGuard config to
-`$JADE_VPN_HUB_OUTPUT_DIR/<interface>.conf`, runs `wg-quick down` if needed,
-then brings the hub up with `wg-quick up`.
+`$JADE_VPN_HUB_WG_QUICK_DIR/<interface>.conf` (default `/etc/wireguard`), runs
+`wg-quick down` if needed, then brings the hub up with `wg-quick up`.
