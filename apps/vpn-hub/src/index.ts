@@ -101,6 +101,13 @@ function isWgQuickBackend(backend: string) {
   return backend === "wg-quick";
 }
 
+function isNetworkManagerUnmanagedError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.includes("device is unmanaged")
+  );
+}
+
 function getInitEndpointPort() {
   const configured = Number(Bun.env.JADE_VPN_HUB_ENDPOINT_PORT);
   if (!Number.isInteger(configured) || configured < 1 || configured > 65535) {
@@ -360,6 +367,26 @@ function getHubPeerRoutes(state: HubState) {
   return [...new Set(state.peers.flatMap((peer) => peer.allowedIps))];
 }
 
+async function applyHubConfigWithWgQuick({
+  config,
+  state,
+  privateKey,
+}: {
+  config: RuntimeConfig;
+  state: HubState;
+  privateKey: string;
+}) {
+  const wgQuickConfigPath = join(config.outputDir, `${config.interfaceName}.conf`);
+  const wgQuickConfig = renderWgQuickConfig(state, privateKey);
+
+  await Bun.write(wgQuickConfigPath, wgQuickConfig);
+  await chmodPrivateKey(wgQuickConfigPath);
+  await runOptionalCommand("wg-quick", ["down", wgQuickConfigPath]);
+  await runCommand("wg-quick", ["up", wgQuickConfigPath]);
+  await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
+  await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+}
+
 async function applyHubConfig({
   config,
   state,
@@ -400,16 +427,11 @@ async function applyHubConfig({
   }
 
   if (isWgQuickBackend(config.applyBackend)) {
-    const wgQuickConfigPath = join(config.outputDir, `${config.interfaceName}.conf`);
-    const wgQuickConfig = renderWgQuickConfig(state, privateKey);
-
-    await Bun.write(wgQuickConfigPath, wgQuickConfig);
-    await chmodPrivateKey(wgQuickConfigPath);
-    await runCommand("wg-quick", ["--version"]);
-    await runOptionalCommand("wg-quick", ["down", wgQuickConfigPath]);
-    await runCommand("wg-quick", ["up", wgQuickConfigPath]);
-    await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
-    await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+    await applyHubConfigWithWgQuick({
+      config,
+      state,
+      privateKey,
+    });
     return;
   }
 
@@ -463,10 +485,25 @@ async function applyHubConfig({
     "disabled",
   ]);
   await runOptionalCommand("nmcli", ["device", "set", config.interfaceName, "managed", "yes"]);
-  await runCommand("nmcli", ["connection", "up", config.interfaceName]);
-  await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
-  await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
-  await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+  try {
+    await runCommand("nmcli", ["connection", "up", config.interfaceName]);
+    await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
+    await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
+    await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+  } catch (error) {
+    if (!isNetworkManagerUnmanagedError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      `NetworkManager does not manage ${config.interfaceName}; falling back to wg-quick.`,
+    );
+    await applyHubConfigWithWgQuick({
+      config,
+      state,
+      privateKey,
+    });
+  }
 }
 
 function renderRoutingPlan(state: HubState) {
