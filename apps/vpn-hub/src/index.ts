@@ -360,6 +360,40 @@ async function replaceInterfaceRoutes(interfaceName: string, cidrs: string[]) {
   }
 }
 
+async function ensureHubForwardingRule(interfaceName: string) {
+  const existingRule = await runOptionalCommand("iptables", [
+    "-C",
+    "FORWARD",
+    "-i",
+    interfaceName,
+    "-o",
+    interfaceName,
+    "-j",
+    "ACCEPT",
+  ]);
+
+  if (existingRule.ok) {
+    return;
+  }
+
+  const insertedRule = await runOptionalCommand("iptables", [
+    "-I",
+    "FORWARD",
+    "-i",
+    interfaceName,
+    "-o",
+    interfaceName,
+    "-j",
+    "ACCEPT",
+  ]);
+
+  if (!insertedRule.ok) {
+    console.warn(
+      `Unable to install iptables forwarding rule for ${interfaceName}: ${insertedRule.stderr || insertedRule.stdout}`,
+    );
+  }
+}
+
 async function hasWireGuardInterface(interfaceName: string) {
   const devices = await wireguardTools.listDevices();
   return devices.some((device) => device.name === interfaceName);
@@ -388,6 +422,7 @@ async function applyHubConfigWithWgQuick({
   await runCommand("wg-quick", ["up", wgQuickConfigPath]);
   await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
   await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+  await ensureHubForwardingRule(config.interfaceName);
 }
 
 async function applyHubConfig({
@@ -426,6 +461,7 @@ async function applyHubConfig({
     await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
     await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
     await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+    await ensureHubForwardingRule(config.interfaceName);
     return;
   }
 
@@ -493,6 +529,7 @@ async function applyHubConfig({
     await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
     await replaceInterfaceRoutes(config.interfaceName, getHubPeerRoutes(state));
     await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
+    await ensureHubForwardingRule(config.interfaceName);
   } catch (error) {
     if (!isNetworkManagerUnmanagedError(error)) {
       throw error;
