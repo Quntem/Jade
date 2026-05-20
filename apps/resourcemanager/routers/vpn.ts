@@ -162,6 +162,7 @@ router.get("/hub-state", async (req, res) => {
       await getHubDesiredState({
         hubId: stringBody(req.query.hubId),
         serviceToken: getHubToken(req),
+        publicKey: stringBody(req.query.publicKey),
       }),
     );
   } catch (error) {
@@ -176,6 +177,7 @@ router.post("/hub-status", async (req, res) => {
         hubId: stringBody(req.body.hubId),
         serviceToken: getHubToken(req),
         status: req.body.status,
+        publicKey: stringBody(req.body.publicKey),
       }),
     );
   } catch (error) {

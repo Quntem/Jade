@@ -102,9 +102,10 @@ function getInitEndpointPort() {
   return configured;
 }
 
-async function fetchHubState(config: RuntimeConfig) {
+async function fetchHubState(config: RuntimeConfig, publicKey: string) {
   const url = new URL("/v1/vpn/hub-state", config.resourceManagerUrl);
   url.searchParams.set("hubId", config.hubId);
+  url.searchParams.set("publicKey", publicKey);
 
   const response = await fetch(url, {
     headers: {
@@ -122,9 +123,11 @@ async function fetchHubState(config: RuntimeConfig) {
 async function reportHubStatus({
   config,
   status,
+  publicKey,
 }: {
   config: RuntimeConfig;
   status: HubStatus;
+  publicKey?: string;
 }) {
   const response = await fetch(`${config.resourceManagerUrl}/v1/vpn/hub-status`, {
     method: "POST",
@@ -135,6 +138,7 @@ async function reportHubStatus({
     body: JSON.stringify({
       hubId: config.hubId,
       status,
+      ...(publicKey ? { publicKey } : {}),
     }),
   });
 
@@ -458,11 +462,18 @@ function renderSummary(state: HubState) {
   );
 }
 
-async function writeRenderedState(config: RuntimeConfig, state: HubState) {
+async function writeRenderedState({
+  config,
+  state,
+  privateKey,
+}: {
+  config: RuntimeConfig;
+  state: HubState;
+  privateKey: string;
+}) {
   await mkdir(config.outputDir, { recursive: true });
 
-  const hubKeyPair = await ensureHubKeyPair(config.outputDir);
-  const wireGuardConfig = renderWireGuardConfig(state, hubKeyPair.privateKey);
+  const wireGuardConfig = renderWireGuardConfig(state, privateKey);
   wireguardTools.wgQuick.parse(wireGuardConfig);
   const routingPlan = renderRoutingPlan(state);
   const summary = renderSummary(state);
@@ -477,7 +488,7 @@ async function writeRenderedState(config: RuntimeConfig, state: HubState) {
     await applyHubConfig({
       config,
       state,
-      privateKey: hubKeyPair.privateKey,
+      privateKey,
     });
   }
 }
@@ -525,9 +536,14 @@ async function initHub() {
 }
 
 async function syncOnce(config: RuntimeConfig) {
-  const state = await fetchHubState(config);
-  await writeRenderedState(config, state);
-  await reportHubStatus({ config, status: "Online" });
+  const hubKeyPair = await ensureHubKeyPair(config.outputDir);
+  const state = await fetchHubState(config, hubKeyPair.publicKey);
+  await writeRenderedState({
+    config,
+    state,
+    privateKey: hubKeyPair.privateKey,
+  });
+  await reportHubStatus({ config, status: "Online", publicKey: hubKeyPair.publicKey });
   console.log(
     `Synced VPN hub ${state.hub.id} version ${state.hub.desiredStateVersion} with ${state.peers.length} peers`,
   );

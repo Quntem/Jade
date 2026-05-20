@@ -33,7 +33,11 @@ type DeliverVpnConfigOptions = VpnPeerLookupOptions;
 type HubAuth = {
   hubId: string;
   serviceToken: string;
+  publicKey?: string;
 };
+
+type VisibleServerForVpn = Awaited<ReturnType<typeof findVisibleServerForVpn>>;
+type VisiblePeerForVpn = VisibleServerForVpn["vpnPeers"][number];
 
 function generateToken() {
   return `${VPN_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
@@ -74,6 +78,12 @@ function normalizeRequiredString(value: string, field: string) {
   return trimmed;
 }
 
+function normalizeOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
 async function getDefaultHub() {
   const hub = await prismaClient.vpnHub.findFirst({
     where: {
@@ -110,9 +120,80 @@ async function allocateTunnelIp(tx: Prisma.TransactionClient) {
 }
 
 function getLatestAgentPublicKey(
-  server: Awaited<ReturnType<typeof findVisibleServerForVpn>>,
+  server: { agents: Array<{ wireguardPublicKey: string | null }> },
 ) {
   return server.agents.find((agent) => agent.wireguardPublicKey)?.wireguardPublicKey ?? null;
+}
+
+async function syncHubPublicKey({
+  hub,
+  publicKey,
+}: {
+  hub: Awaited<ReturnType<typeof authenticateHub>>;
+  publicKey?: string;
+}) {
+  const normalizedPublicKey = normalizeOptionalString(publicKey);
+
+  if (!normalizedPublicKey || normalizedPublicKey === hub.publicKey) {
+    return hub;
+  }
+
+  return await prismaClient.vpnHub.update({
+    where: {
+      id: hub.id,
+    },
+    data: {
+      publicKey: normalizedPublicKey,
+      desiredStateVersion: {
+        increment: 1,
+      },
+    },
+  });
+}
+
+async function syncVisiblePeerPublicKey({
+  server,
+  peer,
+}: {
+  server: VisibleServerForVpn;
+  peer: VisiblePeerForVpn;
+}): Promise<VisiblePeerForVpn> {
+  const publicKey = getLatestAgentPublicKey(server);
+
+  if (!publicKey || publicKey === peer.publicKey) {
+    return peer;
+  }
+
+  return await prismaClient.$transaction(async (tx) => {
+    await tx.vpnHub.update({
+      where: {
+        id: peer.hubId,
+      },
+      data: {
+        desiredStateVersion: {
+          increment: 1,
+        },
+      },
+    });
+
+    return await tx.vpnPeer.update({
+      where: {
+        id: peer.id,
+      },
+      data: {
+        publicKey,
+      },
+      include: {
+        hub: true,
+        configRevisions: {
+          orderBy: {
+            revision: "desc",
+          },
+          take: 1,
+        },
+      },
+    });
+  });
 }
 
 async function findVisibleServerForVpn({
@@ -169,13 +250,17 @@ async function findVisibleServerForVpn({
   return server;
 }
 
-async function getPeerForVisibleServer(options: VpnPeerLookupOptions) {
+async function getPeerForVisibleServer(
+  options: VpnPeerLookupOptions,
+): Promise<{ server: VisibleServerForVpn; peer: VisiblePeerForVpn }> {
   const server = await findVisibleServerForVpn(options);
-  const peer = server.vpnPeers[0];
+  const visiblePeer = server.vpnPeers[0];
 
-  if (!peer) {
+  if (!visiblePeer) {
     throw new VpnError("VPN peer has not been provisioned for this server", 404);
   }
+
+  const peer = await syncVisiblePeerPublicKey({ server, peer: visiblePeer });
 
   return { server, peer };
 }
@@ -543,8 +628,12 @@ export async function deliverVpnConfig(options: DeliverVpnConfigOptions) {
   };
 }
 
-export async function getHubDesiredState({ hubId, serviceToken }: HubAuth) {
-  const hub = await authenticateHub({ hubId, serviceToken });
+export async function getHubDesiredState({ hubId, serviceToken, publicKey }: HubAuth) {
+  const authenticatedHub = await authenticateHub({ hubId, serviceToken });
+  const hub = await syncHubPublicKey({
+    hub: authenticatedHub,
+    publicKey,
+  });
   const peers = await prismaClient.vpnPeer.findMany({
     where: {
       hubId: hub.id,
@@ -559,6 +648,22 @@ export async function getHubDesiredState({ hubId, serviceToken }: HubAuth) {
         select: {
           id: true,
           scopeId: true,
+          agents: {
+            where: {
+              deletedAt: null,
+            },
+            orderBy: [
+              {
+                lastSeenAt: "desc",
+              },
+              {
+                createdAt: "desc",
+              },
+            ],
+            select: {
+              wireguardPublicKey: true,
+            },
+          },
         },
       },
       routes: {
@@ -574,22 +679,55 @@ export async function getHubDesiredState({ hubId, serviceToken }: HubAuth) {
       tunnelIp: "asc",
     },
   });
+  const peerStates = peers.map((peer) => ({
+    peer,
+    publicKey: getLatestAgentPublicKey(peer.server) ?? peer.publicKey,
+  }));
+  const stalePeers = peerStates.filter(({ peer, publicKey }) => publicKey !== peer.publicKey);
+  const syncedHub =
+    stalePeers.length > 0
+      ? await prismaClient.$transaction(async (tx) => {
+          await Promise.all(
+            stalePeers.map(({ peer, publicKey }) =>
+              tx.vpnPeer.update({
+                where: {
+                  id: peer.id,
+                },
+                data: {
+                  publicKey,
+                },
+              }),
+            ),
+          );
+
+          return await tx.vpnHub.update({
+            where: {
+              id: hub.id,
+            },
+            data: {
+              desiredStateVersion: {
+                increment: 1,
+              },
+            },
+          });
+        })
+      : hub;
 
   return {
     hub: {
-      id: hub.id,
-      name: hub.name,
-      endpointHost: hub.endpointHost,
-      endpointPort: hub.endpointPort,
-      publicKey: hub.publicKey,
-      desiredStateVersion: hub.desiredStateVersion,
+      id: syncedHub.id,
+      name: syncedHub.name,
+      endpointHost: syncedHub.endpointHost,
+      endpointPort: syncedHub.endpointPort,
+      publicKey: syncedHub.publicKey,
+      desiredStateVersion: syncedHub.desiredStateVersion,
     },
-    peers: peers.map((peer) => ({
+    peers: peerStates.map(({ peer, publicKey }) => ({
       id: peer.id,
       serverId: peer.serverId,
       scopeId: peer.server.scopeId,
       tunnelIp: `${peer.tunnelIp}/32`,
-      publicKey: peer.publicKey,
+      publicKey,
       allowedIps: [`${peer.tunnelIp}/32`],
       routes: peer.routes.map((route) => route.cidr),
     })),
@@ -600,8 +738,13 @@ export async function recordHubStatus({
   hubId,
   serviceToken,
   status,
+  publicKey,
 }: HubAuth & { status: unknown }) {
-  const hub = await authenticateHub({ hubId, serviceToken });
+  const authenticatedHub = await authenticateHub({ hubId, serviceToken });
+  const hub = await syncHubPublicKey({
+    hub: authenticatedHub,
+    publicKey,
+  });
   const normalizedStatus =
     status === "Online" || status === "Offline" || status === "Degraded"
       ? status
