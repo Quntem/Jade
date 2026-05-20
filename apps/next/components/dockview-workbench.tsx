@@ -16,7 +16,7 @@ import {
 } from "dockview-react";
 import { Empty, EmptyContent, EmptyDescription, EmptyMedia, EmptyTitle } from "./ui/empty";
 import { Button } from "./ui/button";
-import { HardDriveIcon, KeyIcon, Maximize2, PlusIcon, ServerIcon, ShapesIcon, TerminalIcon, X, XIcon } from "lucide-react";
+import { GlobeIcon, HardDriveIcon, KeyIcon, Maximize2, PlusIcon, ServerIcon, SettingsIcon, ShapesIcon, TerminalIcon, X, XIcon } from "lucide-react";
 import { WebShell } from "./webshell/webshell";
 import { ChatKitUi } from "./chatkit";
 import { useAppContext } from "@/lib/appContext";
@@ -26,6 +26,7 @@ import { StorageExplorer } from "./storage/explorer";
 import { DeploymentProcessUi } from "./deployment/deploymentProcess";
 import { AccessTokens, createAccessToken } from "./servers/accessTokens";
 import { ServersPanel } from "./servers/ServersPanel";
+import { VpnPanel } from "./vpn/VPNPanel";
 
 
 const DOCKVIEW_LAYOUTS_STORAGE_KEY = "dockview-layouts";
@@ -37,6 +38,8 @@ const panelIcons = {
   hardDrive: HardDriveIcon,
   shapes: ShapesIcon,
   key: KeyIcon,
+  globe: GlobeIcon,
+  settings: SettingsIcon,
 };
 
 type PanelIconName = keyof typeof panelIcons;
@@ -137,6 +140,9 @@ function NewTabButton({
         <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "servers", { text: "Servers", icon: "server" })}>
           Servers
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "vpn", { text: "VPN Tunnel", icon: "globe" })}>
+          VPN
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -184,6 +190,7 @@ const components = {
   deploymentProcess: DeploymentProcessUi,
   servers: ServersPanel,
   accessTokens_create: createAccessToken,
+  vpn: VpnPanel,
 };
 
 const tabComponents = {

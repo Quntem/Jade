@@ -112,6 +112,14 @@ enum VpnPeerStatus {
   Disabled
 }
 
+enum VpnClientStatus {
+  Pending
+  Ready
+  Delivered
+  Degraded
+  Disabled
+}
+
 enum VpnConfigDeliveryStatus {
   Pending
   Delivered
@@ -197,6 +205,7 @@ model ResourceScope {
   enrollmentTokens EnrollmentToken[]
   auditLogs AuditLog[]
   secrets Secret[]
+  vpnClients VpnClient[]
 
   @@index([type])
   @@index([parentId])
@@ -391,6 +400,7 @@ model VpnHub {
   deletedAt DateTime?
 
   peers VpnPeer[]
+  clients VpnClient[]
   configRevisions VpnConfigRevision[]
 
   @@index([status])
@@ -427,6 +437,33 @@ model VpnPeer {
   @@index([status])
   @@index([enabled])
   @@map("vpn_peers")
+}
+
+model VpnClient {
+  id String @id @default(cuid())
+
+  scopeId String
+  scope ResourceScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  hubId String
+  hub VpnHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+  name String
+  tunnelIp String @unique
+  publicKey String @unique
+  status VpnClientStatus @default(Ready)
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([scopeId])
+  @@index([hubId])
+  @@index([status])
+  @@index([enabled])
+  @@index([deletedAt])
+  @@map("vpn_clients")
 }
 
 model VpnConfigRevision {

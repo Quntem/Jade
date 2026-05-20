@@ -14,14 +14,14 @@ const scopeTypes: ScopeType[] = ["Project", "ResourceGroup", "Folder", "Environm
 
 export function HeaderIcon() {
     return (
-        <div style={{
+        <div className="bg-primary" style={{
             height: 25,
             width: 25,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             borderRadius: "5px",
-            backgroundColor: "#983DFF",
+            // backgroundColor: "#983DFF",
             marginLeft: "15px",
         }}>
             <SwordIcon size={18} color="#fff" />

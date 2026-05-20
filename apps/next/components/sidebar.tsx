@@ -7,6 +7,7 @@ import {
 } from "@/components/reui/tree"
 import { hotkeysCoreFeature, syncDataLoaderFeature } from "@headless-tree/core"
 import { useTree } from "@headless-tree/react"
+import { HomeIcon } from "lucide-react";
 
 export function Sidebar({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; setSidebarOpen: (value: boolean) => void }) {
     // const tree = useTree({
@@ -19,10 +20,19 @@ export function Sidebar({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean;
             animate={{ width: sidebarOpen ? 300 : 0 }}
             exit={{ width: 0 }}
             transition={{ duration: 0.3 }}
-        >
+        >   
             <Tree>
-
+                <SidebarItem Icon={HomeIcon} title="Item" />
             </Tree>
         </motion.div>
+    );
+}
+
+function SidebarItem({Icon, title}: {Icon: React.JSX.ElementType, title: string}) {
+    return (
+        <div className="flex flex-row items-center">
+            <Icon />
+            <span>{title}</span>
+        </div>
     );
 }

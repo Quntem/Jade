@@ -17,6 +17,37 @@ type CreateVpnHubOptions = {
   serviceToken?: string;
 };
 
+type VpnClientStatus =
+  | "Pending"
+  | "Ready"
+  | "Delivered"
+  | "Degraded"
+  | "Disabled";
+
+type CreateVpnClientOptions = {
+  scopeId: string;
+  name: string;
+  publicKey: string;
+  hubId?: string;
+  status?: VpnClientStatus;
+  enabled?: boolean;
+};
+
+type UpdateVpnClientOptions = {
+  id: string;
+  scopeIds: string[];
+  name?: string;
+  publicKey?: string;
+  hubId?: string;
+  status?: VpnClientStatus;
+  enabled?: boolean;
+};
+
+type DeleteVpnClientOptions = {
+  id: string;
+  scopeIds: string[];
+};
+
 type ProvisionVpnPeerOptions = {
   serverId: string;
   scopeIds: string[];
@@ -27,6 +58,16 @@ type ProvisionVpnPeerOptions = {
 type VpnPeerLookupOptions = {
   serverId: string;
   scopeIds: string[];
+};
+
+type VpnClientLookupOptions = {
+  id: string;
+  scopeIds: string[];
+};
+
+type ListVpnClientsOptions = {
+  scopeIds: string[];
+  includeInactive?: boolean;
 };
 
 type DeliverVpnConfigOptions = VpnPeerLookupOptions;
@@ -90,6 +131,23 @@ function normalizeOptionalString(value: unknown) {
     : null;
 }
 
+function normalizeVpnClientStatus(
+  value: unknown,
+  fallback: VpnClientStatus = "Ready",
+): VpnClientStatus {
+  if (
+    value === "Pending" ||
+    value === "Ready" ||
+    value === "Delivered" ||
+    value === "Degraded" ||
+    value === "Disabled"
+  ) {
+    return value;
+  }
+
+  return fallback;
+}
+
 async function getDefaultHub() {
   const hub = await prismaClient.vpnHub.findFirst({
     where: {
@@ -107,13 +165,42 @@ async function getDefaultHub() {
   return hub;
 }
 
-async function allocateTunnelIp(tx: Prisma.TransactionClient) {
-  const peers = await tx.vpnPeer.findMany({
-    select: {
-      tunnelIp: true,
+async function resolveVpnHub(hubId?: string) {
+  if (!hubId) {
+    return await getDefaultHub();
+  }
+
+  const hub = await prismaClient.vpnHub.findFirst({
+    where: {
+      id: hubId,
+      deletedAt: null,
     },
   });
-  const allocated = new Set(peers.map((peer) => peer.tunnelIp));
+
+  if (!hub) {
+    throw new VpnError("VPN hub not found", 404);
+  }
+
+  return hub;
+}
+
+async function allocateTunnelIp(tx: Prisma.TransactionClient) {
+  const [peers, clients] = await Promise.all([
+    tx.vpnPeer.findMany({
+      select: {
+        tunnelIp: true,
+      },
+    }),
+    tx.vpnClient.findMany({
+      select: {
+        tunnelIp: true,
+      },
+    }),
+  ]);
+  const allocated = new Set([
+    ...peers.map((peer) => peer.tunnelIp),
+    ...clients.map((client) => client.tunnelIp),
+  ]);
 
   for (let offset = 1; offset < TUNNEL_POOL_SIZE - 1; offset += 1) {
     const tunnelIp = numberToIp(TUNNEL_POOL_BASE + offset);
@@ -254,6 +341,44 @@ async function findVisibleServerForVpn({
   }
 
   return server;
+}
+
+async function findVisibleVpnClient({
+  id,
+  scopeIds,
+  includeInactive = false,
+}: VpnClientLookupOptions & { includeInactive?: boolean }) {
+  if (scopeIds.length === 0) {
+    return null;
+  }
+
+  return await prismaClient.vpnClient.findFirst({
+    where: {
+      id,
+      scopeId: {
+        in: scopeIds,
+      },
+      ...(includeInactive ? {} : { deletedAt: null }),
+    },
+    include: {
+      hub: {
+        select: {
+          id: true,
+          name: true,
+          endpointHost: true,
+          endpointPort: true,
+          status: true,
+        },
+      },
+      scope: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      },
+    },
+  });
 }
 
 async function getPeerForVisibleServer(
@@ -402,6 +527,198 @@ export async function getVpnPeers({ scopeIds }: { scopeIds: string[] }) {
     },
     orderBy: {
       createdAt: "desc",
+    },
+  });
+}
+
+export async function getVpnClients({
+  scopeIds,
+  includeInactive = false,
+}: ListVpnClientsOptions) {
+  if (scopeIds.length === 0) {
+    return [];
+  }
+
+  return await prismaClient.vpnClient.findMany({
+    where: {
+      scopeId: {
+        in: scopeIds,
+      },
+      ...(includeInactive ? {} : { deletedAt: null }),
+    },
+    include: {
+      hub: {
+        select: {
+          id: true,
+          name: true,
+          endpointHost: true,
+          endpointPort: true,
+          status: true,
+        },
+      },
+      scope: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+}
+
+export async function getVpnClientById({
+  id,
+  scopeIds,
+}: VpnClientLookupOptions) {
+  const client = await findVisibleVpnClient({
+    id,
+    scopeIds,
+  });
+
+  if (!client) {
+    throw new VpnError("VPN client not found", 404);
+  }
+
+  return client;
+}
+
+export async function createVpnClient({
+  scopeId,
+  name,
+  publicKey,
+  hubId,
+  status,
+  enabled,
+}: CreateVpnClientOptions) {
+  const hub = await resolveVpnHub(hubId);
+
+  return await prismaClient.$transaction(async (tx) => {
+    const tunnelIp = await allocateTunnelIp(tx);
+
+    return await tx.vpnClient.create({
+      data: {
+        scopeId: normalizeRequiredString(scopeId, "scopeId"),
+        hubId: hub.id,
+        name: normalizeRequiredString(name, "name"),
+        tunnelIp,
+        publicKey: normalizeRequiredString(publicKey, "publicKey"),
+        status: normalizeVpnClientStatus(status),
+        enabled: enabled ?? true,
+      },
+      include: {
+        hub: {
+          select: {
+            id: true,
+            name: true,
+            endpointHost: true,
+            endpointPort: true,
+            status: true,
+          },
+        },
+        scope: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+          },
+        },
+      },
+    });
+  });
+}
+
+export async function updateVpnClient({
+  id,
+  scopeIds,
+  name,
+  publicKey,
+  hubId,
+  status,
+  enabled,
+}: UpdateVpnClientOptions) {
+  const client = await getVpnClientById({
+    id,
+    scopeIds,
+  });
+  const hub = hubId ? await resolveVpnHub(hubId) : client.hub;
+
+  return await prismaClient.vpnClient.update({
+    where: {
+      id: client.id,
+    },
+    data: {
+      ...(name === undefined
+        ? {}
+        : { name: normalizeRequiredString(name, "name") }),
+      ...(publicKey === undefined
+        ? {}
+        : { publicKey: normalizeRequiredString(publicKey, "publicKey") }),
+      ...(hubId === undefined ? {} : { hubId: hub.id }),
+      ...(status === undefined
+        ? {}
+        : { status: normalizeVpnClientStatus(status, client.status) }),
+      ...(enabled === undefined ? {} : { enabled }),
+    },
+    include: {
+      hub: {
+        select: {
+          id: true,
+          name: true,
+          endpointHost: true,
+          endpointPort: true,
+          status: true,
+        },
+      },
+      scope: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      },
+    },
+  });
+}
+
+export async function deleteVpnClient({
+  id,
+  scopeIds,
+}: DeleteVpnClientOptions) {
+  const client = await getVpnClientById({
+    id,
+    scopeIds,
+  });
+
+  return await prismaClient.vpnClient.update({
+    where: {
+      id: client.id,
+    },
+    data: {
+      enabled: false,
+      status: "Disabled",
+      deletedAt: new Date(),
+    },
+    include: {
+      hub: {
+        select: {
+          id: true,
+          name: true,
+          endpointHost: true,
+          endpointPort: true,
+          status: true,
+        },
+      },
+      scope: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      },
     },
   });
 }
