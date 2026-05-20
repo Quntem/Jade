@@ -39,6 +39,11 @@ type HubAuth = {
 
 type VisibleServerForVpn = Awaited<ReturnType<typeof findVisibleServerForVpn>>;
 type VisiblePeerForVpn = VisibleServerForVpn["vpnPeers"][number];
+type DeliveredVpnConfig = {
+  serverId: string;
+  configRevisionId: string;
+  agentJobId: string;
+};
 
 function generateToken() {
   return `${VPN_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
@@ -591,7 +596,7 @@ export async function createVpnConfigRevision(options: VpnPeerLookupOptions) {
   };
 }
 
-export async function deliverVpnConfig(options: DeliverVpnConfigOptions) {
+async function deliverVpnConfigToServer(options: DeliverVpnConfigOptions): Promise<DeliveredVpnConfig> {
   const { server, peer } = await getPeerForVisibleServer(options);
   const agent = server.agents[0];
 
@@ -627,8 +632,110 @@ export async function deliverVpnConfig(options: DeliverVpnConfigOptions) {
   ]);
 
   return {
+    serverId: server.id,
     configRevisionId: configRevision.id,
     agentJobId: job.id,
+  };
+}
+
+async function getScopePeerServerIdsForDelivery({
+  hubId,
+  scopeId,
+  scopeIds,
+}: {
+  hubId: string;
+  scopeId: string | null;
+  scopeIds: string[];
+}) {
+  if (!scopeId || scopeIds.length === 0) {
+    return [];
+  }
+
+  if (!scopeIds.includes(scopeId)) {
+    return [];
+  }
+
+  const peers = await prismaClient.vpnPeer.findMany({
+    where: {
+      hubId,
+      enabled: true,
+      deletedAt: null,
+      server: {
+        scopeId,
+        deletedAt: null,
+      },
+    },
+    select: {
+      serverId: true,
+      server: {
+        select: {
+          agents: {
+            where: {
+              deletedAt: null,
+            },
+            orderBy: [
+              {
+                lastSeenAt: "desc",
+              },
+              {
+                createdAt: "desc",
+              },
+            ],
+            select: {
+              id: true,
+            },
+            take: 1,
+          },
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+
+  return peers
+    .filter((peer) => peer.server.agents.length > 0)
+    .map((peer) => peer.serverId);
+}
+
+export async function deliverVpnConfig(options: DeliverVpnConfigOptions) {
+  const primary = await deliverVpnConfigToServer(options);
+  const { server, peer } = await getPeerForVisibleServer(options);
+  const siblingServerIds = await getScopePeerServerIdsForDelivery({
+    hubId: peer.hubId,
+    scopeId: server.scopeId,
+    scopeIds: options.scopeIds,
+  });
+
+  const refreshedPeers = (
+    await Promise.all(
+      siblingServerIds
+        .filter((serverId) => serverId !== server.id)
+        .map(async (serverId) => {
+          try {
+            return await deliverVpnConfigToServer({
+              serverId,
+              scopeIds: options.scopeIds,
+            });
+          } catch (error) {
+            if (
+              error instanceof VpnError &&
+              (error.statusCode === 404 || error.statusCode === 409)
+            ) {
+              return null;
+            }
+
+            throw error;
+          }
+        }),
+    )
+  ).filter(Boolean);
+
+  return {
+    configRevisionId: primary.configRevisionId,
+    agentJobId: primary.agentJobId,
+    refreshedPeerCount: refreshedPeers.length + 1,
   };
 }
 

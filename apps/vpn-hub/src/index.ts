@@ -7,6 +7,8 @@ const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const DEFAULT_WIREGUARD_INTERFACE = "jade-hub0";
 const HUB_TUNNEL_CIDR = "100.64.0.0/32";
 
+let lastAppliedHubConfigFingerprint: string | null = null;
+
 type HubState = {
   hub: {
     id: string;
@@ -346,8 +348,6 @@ async function applyHubConfig({
   }
 
   if (isWireGuardToolsBackend(config.applyBackend)) {
-    await runOptionalCommand("ip", ["link", "delete", "dev", config.interfaceName]);
-
     await wireguardTools.setConfig(config.interfaceName, {
       privateKey,
       portListen: state.hub.endpointPort,
@@ -490,6 +490,12 @@ async function writeRenderedState({
   wireguardTools.wgQuick.parse(wireGuardConfig);
   const routingPlan = renderRoutingPlan(state);
   const summary = renderSummary(state);
+  const hubConfigFingerprint = JSON.stringify({
+    interfaceName: config.interfaceName,
+    applyBackend: config.applyBackend,
+    wireGuardConfig,
+    routes: getHubPeerRoutes(state),
+  });
 
   await Promise.all([
     Bun.write(join(config.outputDir, "wg-jade-hub.conf"), wireGuardConfig),
@@ -498,11 +504,14 @@ async function writeRenderedState({
   ]);
 
   if (config.apply) {
-    await applyHubConfig({
-      config,
-      state,
-      privateKey,
-    });
+    if (hubConfigFingerprint !== lastAppliedHubConfigFingerprint) {
+      await applyHubConfig({
+        config,
+        state,
+        privateKey,
+      });
+      lastAppliedHubConfigFingerprint = hubConfigFingerprint;
+    }
   }
 }
 
