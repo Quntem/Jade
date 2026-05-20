@@ -5,6 +5,7 @@ import wireguardTools from "wireguard-tools.js";
 const DEFAULT_OUTPUT_DIR = join(String(Bun.env.HOME ?? "."), ".jade", "vpn-hub");
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const DEFAULT_WIREGUARD_INTERFACE = "jade-hub0";
+const HUB_TUNNEL_CIDR = "100.64.0.0/32";
 
 type HubState = {
   hub: {
@@ -352,7 +353,7 @@ async function applyHubConfig({
     });
 
     await runCommand("ip", ["link", "set", "dev", config.interfaceName, "up"]);
-    await runCommand("ip", ["address", "replace", "100.64.0.0/32", "dev", config.interfaceName]);
+    await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
     await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
     return;
   }
@@ -408,7 +409,7 @@ async function applyHubConfig({
   ]);
   await runOptionalCommand("nmcli", ["device", "set", config.interfaceName, "managed", "yes"]);
   await runCommand("nmcli", ["connection", "up", config.interfaceName]);
-  await runCommand("ip", ["address", "replace", "100.64.0.0/32", "dev", config.interfaceName]);
+  await runCommand("ip", ["address", "replace", HUB_TUNNEL_CIDR, "dev", config.interfaceName]);
   await runCommand("sysctl", ["-w", "net.ipv4.ip_forward=1"]);
 }
 

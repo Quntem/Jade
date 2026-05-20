@@ -6,6 +6,7 @@ import { enqueueAgentJob } from "./agentJobs";
 const VPN_TOKEN_PREFIX = "jade_vpn_hub_";
 const TUNNEL_POOL_BASE = ipToNumber("100.64.0.0");
 const TUNNEL_POOL_SIZE = 1 << 22;
+const HUB_TUNNEL_IP = "100.64.0.0";
 const DEFAULT_PERSISTENT_KEEPALIVE = 25;
 
 type CreateVpnHubOptions = {
@@ -496,7 +497,10 @@ export async function renderSpokeConfig(options: VpnPeerLookupOptions) {
     hubId: peer.hubId,
     scopeId: server.scopeId,
   });
-  const allowedIps = sameScopePeers.map((sameScopePeer) => `${sameScopePeer.tunnelIp}/32`);
+  const allowedIps = [
+    `${HUB_TUNNEL_IP}/32`,
+    ...sameScopePeers.map((sameScopePeer) => `${sameScopePeer.tunnelIp}/32`),
+  ];
   const endpoint = `${peer.hub.endpointHost}:${peer.hub.endpointPort}`;
   const renderedConfig = [
     "[Interface]",
