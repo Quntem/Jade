@@ -330,6 +330,11 @@ async function replaceInterfaceRoutes(interfaceName: string, cidrs: string[]) {
   }
 }
 
+async function hasWireGuardInterface(interfaceName: string) {
+  const devices = await wireguardTools.listDevices();
+  return devices.some((device) => device.name === interfaceName);
+}
+
 function getHubPeerRoutes(state: HubState) {
   return [...new Set(state.peers.flatMap((peer) => peer.allowedIps))];
 }
@@ -348,6 +353,10 @@ async function applyHubConfig({
   }
 
   if (isWireGuardToolsBackend(config.applyBackend)) {
+    if (await hasWireGuardInterface(config.interfaceName)) {
+      await wireguardTools.deleteInterface(config.interfaceName);
+    }
+
     await wireguardTools.setConfig(config.interfaceName, {
       privateKey,
       portListen: state.hub.endpointPort,
