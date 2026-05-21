@@ -94,6 +94,7 @@ enum AgentJobType {
   ObserveResource
   ReconcileResource
   RunCommand
+  BrowseStorage
   ConfigureVpn
 }
 

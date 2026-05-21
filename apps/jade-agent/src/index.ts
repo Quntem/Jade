@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { hostname, machine, platform, type } from "node:os";
 import { dirname, join } from "node:path";
 import { io, type Socket } from "socket.io-client";
+import { createS3FilesClient, listS3Directory } from "../../resourcemanager/functions/storageexplorer";
 import wireguardTools from "wireguard-tools.js";
 
 const DEFAULT_CONFIG_PATH = join(String(Bun.env.HOME ?? "."), ".jade", "agent.json");
@@ -64,6 +65,13 @@ type RunCommandPayload = {
   cwd?: unknown;
   env?: unknown;
   timeoutMs?: unknown;
+};
+
+type BrowseStoragePayload = {
+  connection?: unknown;
+  location?: unknown;
+  cursor?: unknown;
+  limit?: unknown;
 };
 
 function getConfigPath() {
@@ -164,7 +172,7 @@ function collectEnrollmentFacts(keyPair: WireGuardKeyPair) {
     agentVersion: AGENT_VERSION,
     wireguardPublicKey: keyPair.publicKey,
     capabilities: {
-      jobs: ["ConfigureVpn", "RunCommand"],
+      jobs: ["ConfigureVpn", "RunCommand", "BrowseStorage"],
       vpn: {
         wireguard: true,
         applyMode: shouldApplyVpnConfig() ? "apply" : "dry-run",
@@ -243,7 +251,7 @@ async function createHeartbeatPayload(config: AgentConfig) {
     wireguardPublicKey: config.wireguardPublicKey,
     status: "Online",
     capabilities: {
-      jobs: ["ConfigureVpn", "RunCommand"],
+      jobs: ["ConfigureVpn", "RunCommand", "BrowseStorage"],
       vpn: {
         wireguard: true,
         applyMode: shouldApplyVpnConfig() ? "apply" : "dry-run",
@@ -357,6 +365,60 @@ function parseRunCommandPayload(payload: unknown) {
         ? candidate.timeoutMs
         : undefined,
   };
+}
+
+function parseBrowseStoragePayload(payload: unknown) {
+  const candidate =
+    payload && typeof payload === "object"
+      ? (payload as BrowseStoragePayload)
+      : null;
+
+  if (!candidate) {
+    throw new Error("BrowseStorage payload must be an object");
+  }
+
+  const connection = candidate.connection;
+
+  if (
+    !connection ||
+    typeof connection !== "object" ||
+    Array.isArray(connection) ||
+    typeof (connection as { endpoint?: unknown }).endpoint !== "string" ||
+    typeof (connection as { accessKeyId?: unknown }).accessKeyId !== "string" ||
+    typeof (connection as { secretAccessKey?: unknown }).secretAccessKey !== "string" ||
+    typeof (connection as { bucket?: unknown }).bucket !== "string"
+  ) {
+    throw new Error("BrowseStorage payload is missing connection details");
+  }
+
+  return {
+    connection: {
+      endpoint: (connection as { endpoint: string }).endpoint,
+      accessKeyId: (connection as { accessKeyId: string }).accessKeyId,
+      secretAccessKey: (connection as { secretAccessKey: string }).secretAccessKey,
+      bucket: (connection as { bucket: string }).bucket,
+    },
+    location: typeof candidate.location === "string" ? candidate.location : "",
+    cursor: typeof candidate.cursor === "string" ? candidate.cursor : undefined,
+    limit: typeof candidate.limit === "number" ? candidate.limit : undefined,
+  };
+}
+
+async function browseStorage(payload: ReturnType<typeof parseBrowseStoragePayload>) {
+  const client = createS3FilesClient({
+    bucket: payload.connection.bucket,
+    region: "us-east-1",
+    accessKeyId: payload.connection.accessKeyId,
+    secretAccessKey: payload.connection.secretAccessKey,
+    endpoint: payload.connection.endpoint,
+  });
+
+  return await listS3Directory({
+    client,
+    prefix: payload.location,
+    cursor: payload.cursor,
+    limit: payload.limit,
+  });
 }
 
 async function detectSeaweedFsStatus() {
@@ -653,6 +715,29 @@ function registerJobHandlers(socket: Socket, config: AgentConfig) {
             socket.emit("job.failed", {
               jobId: job.id,
               error: error instanceof Error ? error.message : "Unable to run command",
+              result: {
+                receivedAt: new Date().toISOString(),
+              },
+            });
+          });
+        return;
+      }
+
+      if (job.type === "BrowseStorage") {
+        browseStorage(parseBrowseStoragePayload(job.payload))
+          .then((result) => {
+            socket.emit("job.completed", {
+              jobId: job.id,
+              result: {
+                ...result,
+                receivedAt: new Date().toISOString(),
+              },
+            });
+          })
+          .catch((error) => {
+            socket.emit("job.failed", {
+              jobId: job.id,
+              error: error instanceof Error ? error.message : "Unable to browse storage",
               result: {
                 receivedAt: new Date().toISOString(),
               },
