@@ -1,5 +1,6 @@
 import { Prisma, prismaClient } from "@jade/database";
 import { enqueueAgentJob } from "./agentJobs";
+import { dispatchQueuedJobsToOnlineAgent } from "../sockets/agents";
 
 type BucketPlacement = {
   serverIds: string[];
@@ -110,60 +111,83 @@ function buildInstallScript({
   isPrimary: boolean;
 }) {
   const dataDir = "$HOME/.jade/seaweedfs";
-  const binDir = "$HOME/.jade/bin";
-  const osName = "$(uname -s | tr '[:upper:]' '[:lower:]')";
+  const imageName = "localhost/jade-seaweedfs:latest";
   const archName = "$(uname -m)";
 
   return [
     "set -euo pipefail",
-    `mkdir -p "${binDir}" "${dataDir}/logs" "${dataDir}/data"`,
-    `export PATH="${binDir}:$PATH"`,
-    "if ! command -v weed >/dev/null 2>&1 || ! weed version >/dev/null 2>&1; then",
-    `  case "${osName}" in`,
-    "    linux) : ;;",
-    "    *) echo \"Unsupported operating system for SeaweedFS bootstrap: ${osName}\" >&2; exit 1 ;;",
-    "  esac",
-    "  case \"${archName}\" in",
-    "    x86_64|amd64) weed_arch=amd64 ;;",
-    "    aarch64|arm64) weed_arch=arm64 ;;",
-    "    *) echo \"Unsupported CPU architecture for SeaweedFS bootstrap: ${archName}\" >&2; exit 1 ;;",
-    "  esac",
-    "  archive_name=\"linux_${weed_arch}.tar.gz\"",
-    "  download_url=\"https://github.com/seaweedfs/seaweedfs/releases/latest/download/${archive_name}\"",
-    "  archive_path=\"${HOME}/.jade/seaweedfs/${archive_name}\"",
-    "  if command -v curl >/dev/null 2>&1; then",
-    "    curl -fsSL \"${download_url}\" -o \"${archive_path}\"",
-    "  elif command -v wget >/dev/null 2>&1; then",
-    "    wget -qO \"${archive_path}\" \"${download_url}\"",
-    "  else",
-    "    echo \"curl or wget is required to download SeaweedFS\" >&2",
-    "    exit 1",
-    "  fi",
-    "  tar -xzf \"${archive_path}\" -C \"${binDir}\"",
-    "  chmod +x \"${binDir}/weed\"",
-    "  rm -f \"${archive_path}\"",
+    `mkdir -p "${dataDir}/build" "${dataDir}/containers" "${dataDir}/build/weed-image"`,
+    "if ! command -v podman >/dev/null 2>&1; then",
+    '  echo "podman is required to deploy SeaweedFS containers" >&2',
+    "  exit 1",
     "fi",
-    'WEED_BIN="$(command -v weed)"',
-    `PRIMARY_HOST="${primaryHost}"`,
-    `OWN_HOST="${ownHost}"`,
-    `BUCKET_NAME="${bucketName}"`,
-    'MASTER_LOG="${HOME}/.jade/seaweedfs/logs/master.log"',
-    'FILER_LOG="${HOME}/.jade/seaweedfs/logs/filer.log"',
-    'S3_LOG="${HOME}/.jade/seaweedfs/logs/s3.log"',
-    'SHELL_LOG="${HOME}/.jade/seaweedfs/logs/shell.log"',
-    'VOLUME_LOG="${HOME}/.jade/seaweedfs/logs/volume.log"',
-    'if [ "${SEAWEEDFS_ROLE:-}" = "primary" ]; then',
-    '  nohup "$WEED_BIN" master -mdir="${HOME}/.jade/seaweedfs/master" -ip="$OWN_HOST" > "$MASTER_LOG" 2>&1 &',
+    `IMAGE_NAME="${imageName}"`,
+    `CONTAINER_NAME="jade-seaweedfs-${bucketName}-${isPrimary ? "primary" : "volume"}"`,
+    `CONTAINER_DATA_DIR="${dataDir}/containers/$CONTAINER_NAME"`,
+    `BUILD_CONTEXT_DIR="${dataDir}/build/weed-image"`,
+    "case \"${archName}\" in",
+    "  x86_64|amd64) weed_arch=amd64 ;;",
+    "  aarch64|arm64) weed_arch=arm64 ;;",
+    "  *) echo \"Unsupported CPU architecture for SeaweedFS bootstrap: ${archName}\" >&2; exit 1 ;;",
+    "esac",
+    "cat > \"${BUILD_CONTEXT_DIR}/Containerfile\" <<'EOF'",
+    "FROM docker.io/library/alpine:3.20",
+    "RUN apk add --no-cache ca-certificates curl tar",
+    "ARG WEED_ARCH",
+    "RUN set -eux; \\",
+    "    archive=\"linux_${WEED_ARCH}.tar.gz\"; \\",
+    "    curl -fsSL \"https://github.com/seaweedfs/seaweedfs/releases/latest/download/${archive}\" -o /tmp/seaweedfs.tgz; \\",
+    "    tar -xzf /tmp/seaweedfs.tgz -C /usr/local/bin weed; \\",
+    "    chmod +x /usr/local/bin/weed; \\",
+    "    rm -f /tmp/seaweedfs.tgz",
+    "COPY run-seaweedfs.sh /usr/local/bin/run-seaweedfs.sh",
+    "RUN chmod +x /usr/local/bin/run-seaweedfs.sh",
+    "ENTRYPOINT [\"/usr/local/bin/run-seaweedfs.sh\"]",
+    "EOF",
+    "cat > \"${BUILD_CONTEXT_DIR}/run-seaweedfs.sh\" <<'EOF'",
+    "#!/bin/sh",
+    "set -eu",
+    "",
+    'WEED_BIN="/usr/local/bin/weed"',
+    'PRIMARY_HOST="${PRIMARY_HOST:?PRIMARY_HOST is required}"',
+    'OWN_HOST="${OWN_HOST:?OWN_HOST is required}"',
+    'BUCKET_NAME="${BUCKET_NAME:-}"',
+    'SEAWEEDFS_ROLE="${SEAWEEDFS_ROLE:-volume}"',
+    'DATA_DIR="${SEAWEEDFS_DATA_DIR:-/data}"',
+    'LOG_DIR="${DATA_DIR}/logs"',
+    'MASTER_DIR="${DATA_DIR}/master"',
+    'FILER_DIR="${DATA_DIR}/filer"',
+    'VOLUME_DIR="${DATA_DIR}/volume"',
+    "mkdir -p \"$LOG_DIR\" \"$MASTER_DIR\" \"$FILER_DIR\" \"$VOLUME_DIR\"",
+    'if [ "$SEAWEEDFS_ROLE" = "primary" ]; then',
+    '  "$WEED_BIN" master -mdir="$MASTER_DIR" -ip=0.0.0.0 > "$LOG_DIR/master.log" 2>&1 &',
+    '  master_pid=$!',
     "  sleep 3",
-    '  nohup "$WEED_BIN" volume -dir="${HOME}/.jade/seaweedfs/volume" -master="${PRIMARY_HOST}:9333" -ip="$OWN_HOST" -port=8080 > "$VOLUME_LOG" 2>&1 &',
-    '  nohup "$WEED_BIN" filer -defaultStoreDir="${HOME}/.jade/seaweedfs/filer" -master="${PRIMARY_HOST}:9333" -ip="$OWN_HOST" -port=8888 > "$FILER_LOG" 2>&1 &',
-    '  nohup "$WEED_BIN" s3 -filer="${OWN_HOST}:8888" -port=8333 > "$S3_LOG" 2>&1 &',
+    '  "$WEED_BIN" volume -dir="$VOLUME_DIR" -master=127.0.0.1:9333 -ip=0.0.0.0 -port=8080 > "$LOG_DIR/volume.log" 2>&1 &',
+    '  volume_pid=$!',
+    '  "$WEED_BIN" filer -defaultStoreDir="$FILER_DIR" -master=127.0.0.1:9333 -ip=0.0.0.0 -port=8888 > "$LOG_DIR/filer.log" 2>&1 &',
+    '  filer_pid=$!',
+    '  "$WEED_BIN" s3 -filer=127.0.0.1:8888 -port=8333 > "$LOG_DIR/s3.log" 2>&1 &',
+    '  s3_pid=$!',
     "  sleep 8",
-    '  printf "s3.bucket.create -name %s\\n" "$BUCKET_NAME" | "$WEED_BIN" shell -master="${PRIMARY_HOST}:9333" > "$SHELL_LOG" 2>&1 || true',
+    '  if [ -n "$BUCKET_NAME" ]; then',
+    '    printf "s3.bucket.create -name %s\\n" "$BUCKET_NAME" | "$WEED_BIN" shell -master=127.0.0.1:9333 > "$LOG_DIR/shell.log" 2>&1 || true',
+    "  fi",
+    '  wait "$master_pid" "$volume_pid" "$filer_pid" "$s3_pid"',
     "else",
-    '  nohup "$WEED_BIN" volume -dir="${HOME}/.jade/seaweedfs/data" -master="${PRIMARY_HOST}:9333" -ip="$OWN_HOST" > "$VOLUME_LOG" 2>&1 &',
+    '  "$WEED_BIN" volume -dir="$VOLUME_DIR" -master="${PRIMARY_HOST}:9333" -ip=0.0.0.0 -port=8080 > "$LOG_DIR/volume.log" 2>&1 &',
+    '  volume_pid=$!',
+    '  wait "$volume_pid"',
     "fi",
-    "sleep 2",
+    "EOF",
+    "chmod +x \"${BUILD_CONTEXT_DIR}/run-seaweedfs.sh\"",
+    "if ! podman image exists \"$IMAGE_NAME\" >/dev/null 2>&1; then",
+    "  podman build --pull-always --tag \"$IMAGE_NAME\" --build-arg WEED_ARCH=\"$weed_arch\" \"${BUILD_CONTEXT_DIR}\"",
+    "fi",
+    "mkdir -p \"${CONTAINER_DATA_DIR}\"",
+    "podman rm -f \"$CONTAINER_NAME\" >/dev/null 2>&1 || true",
+    `podman run -d --name "$CONTAINER_NAME" --replace --network host --pull never --log-driver=none --stop-timeout=10 -e SEAWEEDFS_ROLE="${isPrimary ? "primary" : "volume"}" -e PRIMARY_HOST="${primaryHost}" -e OWN_HOST="${ownHost}" -e BUCKET_NAME="${bucketName}" -e SEAWEEDFS_DATA_DIR=/data -v "$CONTAINER_DATA_DIR:/data:Z" "$IMAGE_NAME"`,
+    'sleep 5',
   ].join("\n");
 }
 
@@ -220,8 +244,8 @@ function createBucketResourceSpec({
       secretAccessKey: "secret",
     },
     install: {
-      binaryName: "weed",
-      packageSource: "github.com/seaweedfs/seaweedfs/weed@latest",
+      binaryName: "podman",
+      packageSource: "seaweedfs release image built locally with podman",
     },
   };
 }
@@ -402,6 +426,8 @@ export async function createSeaweedFsBucketResource({
       deploymentStepId: step.id,
       targetId: null,
     });
+
+    await dispatchQueuedJobsToOnlineAgent(agent.id);
 
     order += 1;
   }
