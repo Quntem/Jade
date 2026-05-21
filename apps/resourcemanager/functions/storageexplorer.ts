@@ -19,9 +19,21 @@ export type StorageExplorerList = {
   cursor?: string;
 };
 
-export function createS3FilesClient({ bucket, region, accessKeyId, secretAccessKey }: { bucket: string; region: string; accessKeyId: string; secretAccessKey: string }) {
+export function createS3FilesClient({
+  bucket,
+  region,
+  accessKeyId,
+  secretAccessKey,
+  endpoint,
+}: {
+  bucket: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  endpoint: string;
+}) {
   return new Files({
-    adapter: s3({ bucket, region, credentials: { accessKeyId, secretAccessKey }, endpoint: "http://127.0.0.1:8333" }),
+    adapter: s3({ bucket, region, credentials: { accessKeyId, secretAccessKey }, endpoint }),
   });
 }
 

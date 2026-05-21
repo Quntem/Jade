@@ -429,6 +429,7 @@ async function findVisibleVpnClient({
           name: true,
           endpointHost: true,
           endpointPort: true,
+          publicKey: true,
           status: true,
         },
       },

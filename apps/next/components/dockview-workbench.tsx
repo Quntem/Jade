@@ -51,6 +51,7 @@ type PanelIcon = ComponentType<{ size?: number }>;
 type PanelParams = {
   text: string;
   icon?: PanelIconName;
+  resourceId?: string;
 };
 type StoredDockviewLayouts = Record<string, SerializedDockview>;
 
@@ -102,7 +103,19 @@ export function addNewTab(api: DockviewApi, referenceGroup?: IDockviewHeaderActi
   api.addPanel({
     id: panelId,
     component: component,
-    title: component === "servers" ? "Server Manager" : component === "vpn" ? "VPN Manager" : component == "vpn_client_create" ? "Create VPN Client" : component == "deploymentProcess" ? "Deployment Process" : component == "accessTokens_create" ? "Create Access Token" : "Untitled",
+    title: component === "servers"
+      ? "Server Manager"
+      : component === "vpn"
+        ? "VPN Manager"
+        : component == "vpn_client_create"
+          ? "Create VPN Client"
+          : component == "deploymentProcess"
+            ? "Deployment Process"
+            : component == "accessTokens_create"
+              ? "Create Access Token"
+              : component === "storageExplorer"
+                ? "Storage Explorer"
+                : "Untitled",
     tabComponent: "default",
     position: referenceGroup ? { referenceGroup } : undefined,
     params: params,

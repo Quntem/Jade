@@ -27,7 +27,11 @@ export function Sidebar({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean;
         >   
             <div className="flex flex-col p-3 pb-0">
                 <Button onClick={() => {
-                    addNewTab(dockViewApi, null, 'createResourcePanel', {icon: "plus"})
+                    if (!dockViewApi) {
+                        return
+                    }
+
+                    addNewTab(dockViewApi, undefined, 'createResourcePanel', {text: "Create resource", icon: "plus"})
                 }}>
                     <PlusIcon />
                     Create

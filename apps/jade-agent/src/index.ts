@@ -57,6 +57,14 @@ type ConfigureVpnPayload = {
   renderedConfig?: unknown;
 };
 
+type RunCommandPayload = {
+  command?: unknown;
+  args?: unknown;
+  cwd?: unknown;
+  env?: unknown;
+  timeoutMs?: unknown;
+};
+
 function getConfigPath() {
   return Bun.env.JADE_AGENT_CONFIG || DEFAULT_CONFIG_PATH;
 }
@@ -155,7 +163,7 @@ function collectEnrollmentFacts(keyPair: WireGuardKeyPair) {
     agentVersion: AGENT_VERSION,
     wireguardPublicKey: keyPair.publicKey,
     capabilities: {
-      jobs: ["ConfigureVpn"],
+      jobs: ["ConfigureVpn", "RunCommand"],
       vpn: {
         wireguard: true,
         applyMode: shouldApplyVpnConfig() ? "apply" : "dry-run",
@@ -223,7 +231,9 @@ async function loadOrEnrollConfig() {
   return await enroll(controlUrl, keyPair);
 }
 
-function createHeartbeatPayload(config: AgentConfig) {
+async function createHeartbeatPayload(config: AgentConfig) {
+  const seaweedfsStatus = await detectSeaweedFsStatus();
+
   return {
     hostname: hostname(),
     os: `${type()} ${platform()}`,
@@ -232,10 +242,13 @@ function createHeartbeatPayload(config: AgentConfig) {
     wireguardPublicKey: config.wireguardPublicKey,
     status: "Online",
     capabilities: {
-      jobs: ["ConfigureVpn"],
+      jobs: ["ConfigureVpn", "RunCommand"],
       vpn: {
         wireguard: true,
         applyMode: shouldApplyVpnConfig() ? "apply" : "dry-run",
+      },
+      storage: {
+        seaweedfs: seaweedfsStatus,
       },
     },
     metadata: {
@@ -250,7 +263,7 @@ function createHeartbeatPayload(config: AgentConfig) {
 }
 
 function sendHeartbeat(socket: Socket, config: AgentConfig) {
-  socket.timeout(10_000).emit("agent.heartbeat", createHeartbeatPayload(config), (error: Error | null, response: unknown) => {
+  createHeartbeatPayload(config).then((payload) => socket.timeout(10_000).emit("agent.heartbeat", payload, (error: Error | null, response: unknown) => {
     if (error) {
       console.error("Heartbeat acknowledgement timed out", error);
       return;
@@ -259,13 +272,28 @@ function sendHeartbeat(socket: Socket, config: AgentConfig) {
     if (!isOkResponse(response)) {
       console.error("Heartbeat was rejected", response);
     }
-  });
+  }));
 }
 
 function optionalPayloadString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+function optionalPayloadStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : null;
+}
+
+function optionalPayloadStringRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const entries = Object.entries(value).filter(([, item]) => typeof item === "string");
+  return Object.fromEntries(entries) as Record<string, string>;
 }
 
 function parseConfigureVpnPayload(payload: unknown) {
@@ -296,6 +324,53 @@ function parseConfigureVpnPayload(payload: unknown) {
     allowedIps: Array.isArray(candidate.allowedIps)
       ? candidate.allowedIps.filter((value): value is string => typeof value === "string")
       : [],
+  };
+}
+
+function parseRunCommandPayload(payload: unknown) {
+  const candidate =
+    payload && typeof payload === "object"
+      ? (payload as RunCommandPayload)
+      : null;
+
+  if (!candidate) {
+    throw new Error("RunCommand payload must be an object");
+  }
+
+  const command = optionalPayloadString(candidate.command);
+  const args = optionalPayloadStringArray(candidate.args) ?? [];
+  const cwd = optionalPayloadString(candidate.cwd);
+  const env = optionalPayloadStringRecord(candidate.env);
+
+  if (!command) {
+    throw new Error("RunCommand payload is missing a command");
+  }
+
+  return {
+    command,
+    args,
+    cwd,
+    env,
+    timeoutMs:
+      typeof candidate.timeoutMs === "number" && Number.isFinite(candidate.timeoutMs)
+        ? candidate.timeoutMs
+        : undefined,
+  };
+}
+
+async function detectSeaweedFsStatus() {
+  const result = await runOptionalCommand("weed", ["version"]);
+
+  if (!result.ok) {
+    return {
+      installed: false,
+      version: null,
+    };
+  }
+
+  return {
+    installed: true,
+    version: result.stdout || null,
   };
 }
 
@@ -356,6 +431,31 @@ async function runOptionalCommand(command: string, args: string[]) {
 
   return {
     ok: exitCode === 0,
+    stdout: stdout.trim(),
+    stderr: stderr.trim(),
+  };
+}
+
+async function runGenericCommand(payload: ReturnType<typeof parseRunCommandPayload>) {
+  const child = Bun.spawn([payload.command, ...payload.args], {
+    cwd: payload.cwd ?? undefined,
+    env: payload.env ? { ...(process.env as Record<string, string>), ...payload.env } : undefined,
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(`${payload.command} ${payload.args.join(" ")} failed: ${stderr.trim()}`);
+  }
+
+  return {
+    exitCode,
     stdout: stdout.trim(),
     stderr: stderr.trim(),
   };
@@ -496,6 +596,29 @@ function registerJobHandlers(socket: Socket, config: AgentConfig) {
             },
           });
         });
+        return;
+      }
+
+      if (job.type === "RunCommand") {
+        runGenericCommand(parseRunCommandPayload(job.payload))
+          .then((result) => {
+            socket.emit("job.completed", {
+              jobId: job.id,
+              result: {
+                ...result,
+                receivedAt: new Date().toISOString(),
+              },
+            });
+          })
+          .catch((error) => {
+            socket.emit("job.failed", {
+              jobId: job.id,
+              error: error instanceof Error ? error.message : "Unable to run command",
+              result: {
+                receivedAt: new Date().toISOString(),
+              },
+            });
+          });
         return;
       }
 

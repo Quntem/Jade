@@ -11,6 +11,7 @@ import {
   markJobAccepted,
   recordJobProgress,
 } from "../functions/agentJobs";
+import { reconcileSeaweedFsDeploymentForJob } from "../functions/seaweedfs";
 
 const DEFAULT_AGENT_OFFLINE_GRACE_MS = 30_000;
 const DEFAULT_AGENT_STALE_MS = 90_000;
@@ -454,6 +455,7 @@ function registerJobHandlers(socket: Socket, agent: AgentSocketData) {
       );
 
       if (job) {
+        await reconcileSeaweedFsDeploymentForJob(jobId);
         await dispatchQueuedJobs(socket, agent);
       }
     },
@@ -483,6 +485,7 @@ function registerJobHandlers(socket: Socket, agent: AgentSocketData) {
       );
 
       if (job?.status === "Queued") {
+        await reconcileSeaweedFsDeploymentForJob(jobId);
         await dispatchQueuedJobs(socket, agent);
       }
     },

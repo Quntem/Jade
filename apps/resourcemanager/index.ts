@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import express from "express";
 import agentsRouter from "./routers/agents";
 import enrollmentTokensRouter from "./routers/enrollmentTokens";
+import resourcesRouter from "./routers/resources";
 import scopesRouter from "./routers/scopes";
 import serversRouter from "./routers/servers";
 import storageExplorerRouter from "./routers/storageexplorer";
@@ -42,6 +43,8 @@ app.use("/v1/servers", serversRouter);
 app.use("/v1/enrollment-tokens", enrollmentTokensRouter);
 
 app.use("/v1/agents", agentsRouter);
+
+app.use("/v1/resources", resourcesRouter);
 
 app.use("/v1/storageexplorer", storageExplorerRouter);
 

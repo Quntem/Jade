@@ -78,6 +78,9 @@ export function ResourcePanel() {
                             <ResourceField label="Health" value={selectedResource.health} />
                             <ResourceField label="Provider" value={selectedResource.provider ?? "-"} />
                             <ResourceField label="Last error" value={selectedResource.lastError ?? "-"} />
+                            {selectedResource.type === "jade.storage.bucket" ? (
+                                <BucketResourceDetails resource={selectedResource} />
+                            ) : null}
                             <ResourceField label="Spec" value={JSON.stringify(selectedResource.spec, null, 2)} monospaced />
                         </div>
                     ) : (
@@ -106,4 +109,43 @@ function ResourceField({
             </div>
         </div>
     )
+}
+
+function BucketResourceDetails({ resource }: { resource: NonNullable<ReturnType<typeof useResource>["data"]> }) {
+  const status = resource.status as {
+    gatewayUrl?: string | null;
+    masterUrl?: string | null;
+    deploymentId?: string | null;
+    installedServers?: string[];
+    failedServers?: string[];
+    lastError?: string | null;
+    connection?: {
+      endpoint: string;
+      accessKeyId: string;
+      secretAccessKey: string;
+      bucket: string;
+    } | null;
+  };
+  const spec = resource.spec as {
+    bucketName?: string;
+    placement?: {
+      serverIds?: string[];
+      primaryServerId?: string;
+      primaryHost?: string;
+    };
+  };
+
+  return (
+    <>
+      <ResourceField label="Bucket Name" value={spec.bucketName ?? "-"} />
+      <ResourceField label="Primary Host" value={spec.placement?.primaryHost ?? "-"} />
+      <ResourceField label="Selected Servers" value={(spec.placement?.serverIds ?? []).join(", ") || "-"} />
+      <ResourceField label="Gateway URL" value={status.gatewayUrl ?? "-"} />
+      <ResourceField label="Master URL" value={status.masterUrl ?? "-"} />
+      <ResourceField label="Deployment ID" value={status.deploymentId ?? "-"} />
+      <ResourceField label="Installed Servers" value={(status.installedServers ?? []).join(", ") || "-"} />
+      <ResourceField label="Failed Servers" value={(status.failedServers ?? []).join(", ") || "-"} />
+      <ResourceField label="Connected Bucket" value={status.connection?.bucket ?? "-"} />
+    </>
+  );
 }
