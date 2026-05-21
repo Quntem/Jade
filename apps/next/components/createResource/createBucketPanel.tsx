@@ -19,15 +19,33 @@ export function createBucketPanel(props: IDockviewPanelProps) {
   const [resourceName, setResourceName] = useState("SeaweedFS Bucket");
   const [bucketName, setBucketName] = useState(`bucket-${Date.now().toString(36)}`);
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
+  const [primaryServerId, setPrimaryServerId] = useState<string | null>(null);
   const servers = useServers({ scopeId: scope });
   const createBucketMutation = useCreateResource();
   const createdBucket = createBucketMutation.data;
 
   useEffect(() => {
     if (!selectedServerIds.length && servers.data?.length) {
-      setSelectedServerIds([servers.data[0].id]);
+      const firstServerId = servers.data[0].id;
+      setSelectedServerIds([firstServerId]);
+      setPrimaryServerId(firstServerId);
     }
   }, [selectedServerIds.length, servers.data]);
+
+  useEffect(() => {
+    if (selectedServerIds.length === 0) {
+      if (primaryServerId !== null) {
+        setPrimaryServerId(null);
+      }
+      return;
+    }
+
+    if (primaryServerId && selectedServerIds.includes(primaryServerId)) {
+      return;
+    }
+
+    setPrimaryServerId(selectedServerIds[0] ?? null);
+  }, [primaryServerId, selectedServerIds]);
 
   const selectedServers = useMemo(
     () => servers.data?.filter((server) => selectedServerIds.includes(server.id)) ?? [],
@@ -46,6 +64,7 @@ export function createBucketPanel(props: IDockviewPanelProps) {
       spec: {
         bucketName: bucketName.trim(),
         serverIds: selectedServerIds,
+        primaryServerId: primaryServerId ?? undefined,
       },
     });
   }
@@ -131,17 +150,50 @@ export function createBucketPanel(props: IDockviewPanelProps) {
                       server={server}
                       checked={selectedServerIds.includes(server.id)}
                       onCheckedChange={(checked) =>
-                        setSelectedServerIds((current) =>
-                          checked
-                            ? [...new Set([...current, server.id])]
-                            : current.filter((id) => id !== server.id),
-                        )
+                        setSelectedServerIds((current) => {
+                          if (checked) {
+                            const next = [...new Set([...current, server.id])];
+                            if (!primaryServerId) {
+                              setPrimaryServerId(server.id);
+                            }
+                            return next;
+                          }
+
+                          const next = current.filter((id) => id !== server.id);
+                          if (primaryServerId === server.id) {
+                            setPrimaryServerId(next[0] ?? null);
+                          }
+                          return next;
+                        })
                       }
                     />
                   ))
                 ) : (
                   <div className="text-sm text-[#999999]">No servers are available in this scope.</div>
                 )}
+
+                <Field>
+                  <FieldTitle>Primary Server</FieldTitle>
+                  <FieldDescription>
+                    This server will boot the bucket and host the SeaweedFS master and gateway.
+                  </FieldDescription>
+                  <select
+                    className="w-full rounded-md border border-[#e4e4e7] bg-white px-3 py-2 text-sm text-[#444444] disabled:cursor-not-allowed disabled:opacity-50"
+                    value={primaryServerId ?? ""}
+                    onChange={(event) => setPrimaryServerId(event.target.value || null)}
+                    disabled={selectedServers.length === 0}
+                  >
+                    {selectedServers.length === 0 ? (
+                      <option value="">Select a server first</option>
+                    ) : (
+                      selectedServers.map((server) => (
+                        <option key={server.id} value={server.id}>
+                          {server.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </Field>
               </div>
             </TabsContent>
 
@@ -158,12 +210,22 @@ export function createBucketPanel(props: IDockviewPanelProps) {
                 <div>
                   Servers: {selectedServers.length ? selectedServers.map((server) => server.name).join(", ") : "[Not selected]"}
                 </div>
+                <div>
+                  Primary Server: {selectedServers.find((server) => server.id === primaryServerId)?.name ?? "[Not selected]"}
+                </div>
               </div>
 
               <div className="mt-4">
                 <Button
                   onClick={handleCreate}
-                  disabled={!scope || !resourceName.trim() || !bucketName.trim() || selectedServerIds.length === 0 || createBucketMutation.loading}
+                  disabled={
+                    !scope ||
+                    !resourceName.trim() ||
+                    !bucketName.trim() ||
+                    selectedServerIds.length === 0 ||
+                    !primaryServerId ||
+                    createBucketMutation.loading
+                  }
                 >
                   {createBucketMutation.loading ? "Creating..." : "Confirm"}
                 </Button>
@@ -174,6 +236,7 @@ export function createBucketPanel(props: IDockviewPanelProps) {
                 {!bucketName.trim() && <p className="text-sm text-red-500">Bucket name is required</p>}
                 {!scope && <p className="text-sm text-red-500">Scope ID is required</p>}
                 {selectedServerIds.length === 0 && <p className="text-sm text-red-500">Select at least one server</p>}
+                {selectedServerIds.length > 0 && !primaryServerId && <p className="text-sm text-red-500">Select a primary server</p>}
               </div>
             </TabsContent>
           </Tabs>

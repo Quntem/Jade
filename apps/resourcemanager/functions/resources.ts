@@ -126,6 +126,7 @@ export async function createResource({
     const bucketSpec = spec as {
       bucketName?: string;
       serverIds?: string[];
+      primaryServerId?: string;
     };
 
     if (!bucketSpec.bucketName || !Array.isArray(bucketSpec.serverIds)) {
@@ -138,6 +139,7 @@ export async function createResource({
       name,
       bucketName: bucketSpec.bucketName,
       serverIds: bucketSpec.serverIds,
+      primaryServerId: bucketSpec.primaryServerId,
       scopeIds,
     });
   }
@@ -195,4 +197,3 @@ export async function updateResource({
     select: resourceSelect(),
   });
 }
-

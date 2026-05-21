@@ -49,6 +49,7 @@ type CreateSeaweedFsBucketOptions = {
   name: string;
   bucketName: string;
   serverIds: string[];
+  primaryServerId?: string;
   scopeIds: string[];
 };
 
@@ -92,11 +93,23 @@ function normalizeBucketName(value: string) {
 }
 
 function firstVisibleAgent(server: {
-  agents: Array<{ id: string; deletedAt: Date | null; createdAt: Date }>;
+  agents: Array<{
+    id: string;
+    deletedAt: Date | null;
+    createdAt: Date;
+    status: "Unknown" | "Online" | "Offline" | "Degraded";
+    lastSeenAt: Date | null;
+  }>;
 }) {
   return server.agents
     .filter((agent) => agent.deletedAt === null)
-    .sort((first, second) => first.createdAt.getTime() - second.createdAt.getTime())[0];
+    .filter((agent) => agent.status === "Online" || agent.status === "Degraded")
+    .sort((first, second) => {
+      const firstSeen = first.lastSeenAt?.getTime() ?? first.createdAt.getTime();
+      const secondSeen = second.lastSeenAt?.getTime() ?? second.createdAt.getTime();
+
+      return secondSeen - firstSeen;
+    })[0];
 }
 
 function buildInstallScript({
@@ -112,7 +125,6 @@ function buildInstallScript({
 }) {
   const dataDir = "$HOME/.jade/seaweedfs";
   const imageName = "localhost/jade-seaweedfs:latest";
-  const archName = "$(uname -m)";
 
   return [
     "set -euo pipefail",
@@ -125,6 +137,7 @@ function buildInstallScript({
     `CONTAINER_NAME="jade-seaweedfs-${bucketName}-${isPrimary ? "primary" : "volume"}"`,
     `CONTAINER_DATA_DIR="${dataDir}/containers/$CONTAINER_NAME"`,
     `BUILD_CONTEXT_DIR="${dataDir}/build/weed-image"`,
+    'archName="$(uname -m)"',
     "case \"${archName}\" in",
     "  x86_64|amd64) weed_arch=amd64 ;;",
     "  aarch64|arm64) weed_arch=arm64 ;;",
@@ -256,6 +269,7 @@ export async function createSeaweedFsBucketResource({
   name,
   bucketName,
   serverIds,
+  primaryServerId,
   scopeIds,
 }: CreateSeaweedFsBucketOptions) {
   const normalizedName = normalizeName(name);
@@ -294,7 +308,10 @@ export async function createSeaweedFsBucketResource({
     throw new Error("One or more selected servers are not visible");
   }
 
-  const primaryServer = visibleServers[0];
+  const resolvedPrimaryServerId =
+    primaryServerId && serverIds.includes(primaryServerId) ? primaryServerId : serverIds[0];
+
+  const primaryServer = visibleServers.find((server) => server.id === resolvedPrimaryServerId);
 
   if (!primaryServer) {
     throw new Error("At least one server must be selected");
@@ -311,7 +328,7 @@ export async function createSeaweedFsBucketResource({
       throw new Error(`Server ${server.name} is missing a hostname`);
     }
     if (!firstVisibleAgent(server)) {
-      throw new Error(`Server ${server.name} does not have a connected agent`);
+      throw new Error(`Server ${server.name} does not have an online agent`);
     }
   }
 
