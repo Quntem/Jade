@@ -30,6 +30,7 @@ import { VpnPanel } from "./vpn/VPNPanel";
 import { createVpnClient } from "./vpn/create-client";
 import { ResourcePanel } from "./resourcePanel";
 import { CreateResourcePanel } from "./createResource/createResourcePanel";
+import { createBucketPanel } from "./createResource/createBucketPanel";
 
 
 const DOCKVIEW_LAYOUTS_STORAGE_KEY = "dockview-layouts";
@@ -109,6 +110,8 @@ export function addNewTab(api: DockviewApi, referenceGroup?: IDockviewHeaderActi
         ? "VPN Manager"
         : component == "vpn_client_create"
           ? "Create VPN Client"
+          : component === "createBucketPanel"
+            ? "Create Storage Bucket"
           : component == "deploymentProcess"
             ? "Deployment Process"
             : component == "accessTokens_create"
@@ -163,6 +166,9 @@ function NewTabButton({
         <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "vpn_client_create", { text: "Create VPN Client", icon: "globe" })}>
           Create VPN Client
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "createBucketPanel", { text: "Create Storage Bucket", icon: "hardDrive" })}>
+          Create Storage Bucket
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -211,6 +217,7 @@ const components = {
   servers: ServersPanel,
   accessTokens_create: createAccessToken,
   vpn_client_create: createVpnClient,
+  createBucketPanel: createBucketPanel,
   vpn: VpnPanel,
   ResourcePanel: ResourcePanel,
   createResourcePanel: CreateResourcePanel

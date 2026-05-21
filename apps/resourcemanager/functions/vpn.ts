@@ -3,6 +3,7 @@ import { Prisma, prismaClient } from "@jade/database";
 import wireguardTools from "wireguard-tools.js";
 import { hashSecret } from "./agentEnrollment";
 import { enqueueAgentJob } from "./agentJobs";
+import { dispatchQueuedJobsToOnlineAgent } from "../sockets/agents";
 
 const VPN_TOKEN_PREFIX = "jade_vpn_hub_";
 const TUNNEL_POOL_BASE = ipToNumber("100.64.0.0");
@@ -1297,6 +1298,8 @@ async function deliverVpnConfigToServer(options: DeliverVpnConfigOptions): Promi
       },
     }),
   ]);
+
+  await dispatchQueuedJobsToOnlineAgent(agent.id);
 
   return {
     serverId: server.id,
