@@ -6,6 +6,7 @@ import wireguardTools from "wireguard-tools.js";
 
 const DEFAULT_CONFIG_PATH = join(String(Bun.env.HOME ?? "."), ".jade", "agent.json");
 const DEFAULT_VPN_CONFIG_DIR = join(String(Bun.env.HOME ?? "."), ".jade", "vpn");
+const DEFAULT_LOCAL_BIN_DIR = join(String(Bun.env.HOME ?? "."), ".jade", "bin");
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const DEFAULT_WIREGUARD_INTERFACE = "jade0";
 const AGENT_NAME = "jade-agent";
@@ -419,21 +420,59 @@ async function runCommand(command: string, args: string[]) {
 }
 
 async function runOptionalCommand(command: string, args: string[]) {
-  const child = Bun.spawn([command, ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
+  const candidates = command === "weed" ? [join(DEFAULT_LOCAL_BIN_DIR, command), command] : [command];
+
+  for (const candidate of candidates) {
+    try {
+      const child = Bun.spawn([candidate, ...args], {
+        stderr: "pipe",
+        stdout: "pipe",
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+
+      return {
+        ok: exitCode === 0,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+      };
+    } catch (error) {
+      if (!isExecutableNotFoundError(error)) {
+        throw error;
+      }
+    }
+  }
 
   return {
-    ok: exitCode === 0,
-    stdout: stdout.trim(),
-    stderr: stderr.trim(),
+    ok: false,
+    stdout: "",
+    stderr: `Executable not found in PATH: "${command}"`,
   };
+}
+
+function isExecutableNotFoundError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    path?: unknown;
+    message?: unknown;
+  };
+
+  if (candidate.code === "ENOENT") {
+    return true;
+  }
+
+  if (typeof candidate.message === "string" && candidate.message.includes("Executable not found in $PATH")) {
+    return true;
+  }
+
+  return false;
 }
 
 async function runGenericCommand(payload: ReturnType<typeof parseRunCommandPayload>) {
