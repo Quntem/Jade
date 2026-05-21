@@ -47,12 +47,13 @@ export function UserAvatar() {
 }
 
 export function HeaderSearch() {
+    const { commandOpen, setCommandOpen } = useAppContext();
     return (
         <div style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            width: "40%",
+            width: "35%",
             height: "30px",
             borderRadius: "5px",
             // backgroundColor: "#fff",
@@ -64,14 +65,14 @@ export function HeaderSearch() {
             transform: "translateX(-50%)",
             // zIndex: 1000,
         }} onClick={() => {
-            (window as any).setCommandBarOpen()
+            setCommandOpen(true)
         }}>
             <SearchIcon size={16} />
             <div style={{
                 marginLeft: "8px",
                 fontSize: "14px",
             }}>
-                Search Quntem Jade
+                Search Quntem Jade (cmd+k)
             </div>
         </div>
     )

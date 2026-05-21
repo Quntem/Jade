@@ -206,6 +206,66 @@ export async function getVpnConfig(serverId: string): Promise<SpokeVpnConfig> {
     )
 }
 
+export type SearchResult = {
+    type: "vpn_client" | "vpn_peer" | "server"
+    id: string
+    name: string
+    scopeId: string | null
+    hubId: string | null
+    status?: string
+}
+
+export async function searchResources(query: string): Promise<SearchResult[]> {
+    const params = new URLSearchParams({ q: query })
+    const response = await fetchJson<{ results: SearchResult[] }>(
+        `/api/v1/vpn/search?${params.toString()}`,
+    )
+    return response.results
+}
+
+export function useSearchResources(
+    query: string,
+    options: { enabled?: boolean } = {},
+): AsyncState<SearchResult[]> {
+    const { enabled = true } = options
+    const [state, setState] = useState<Omit<AsyncState<SearchResult[]>, "reload">>({
+        data: null,
+        loaded: false,
+        error: null,
+    })
+
+    const reload = useCallback(async () => {
+        if (!enabled || !query.trim()) {
+            setState({ data: null, loaded: false, error: null })
+            return
+        }
+
+        try {
+            const data = await searchResources(query)
+            setState({ data, loaded: true, error: null })
+        } catch (error) {
+            setState({
+                data: null,
+                loaded: true,
+                error:
+                    error instanceof Error
+                        ? error
+                        : new Error("Unable to search resources"),
+            })
+        }
+    }, [enabled, query])
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            reload()
+        }, 300)
+
+        return () => clearTimeout(timer)
+    }, [reload])
+
+    return { ...state, reload }
+}
+
 export function useServers(
     options: ListServersOptions & { enabled?: boolean } = {},
 ): AsyncState<JadeServer[]> {

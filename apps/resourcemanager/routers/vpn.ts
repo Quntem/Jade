@@ -7,11 +7,13 @@ import {
   getHubDesiredState,
   getVpnHubs,
   getVpnClientById,
+  getVpnClientConfig,
   getVpnClients,
   getVpnPeers,
   provisionVpnPeer,
   recordHubStatus,
   renderSpokeConfig,
+  searchVpnResources,
   updateVpnClient,
   VpnError,
 } from "../functions/vpn";
@@ -69,6 +71,16 @@ function vpnClientStatusBody(value: unknown) {
   }
 
   return undefined;
+}
+
+function vpnClientCreationModeBody(value: unknown) {
+  const mode = optionalStringBody(value);
+
+  if (mode === "secure" || mode === "regular") {
+    return mode;
+  }
+
+  return "secure";
 }
 
 function getHubToken(req: express.Request) {
@@ -201,11 +213,9 @@ router.post("/clients", async (req, res) => {
     res.status(201).json(
       await createVpnClient({
         scopeId,
+        scopeIds: visibleScopeIds,
         name: stringBody(req.body.name),
-        publicKey: stringBody(req.body.publicKey),
-        hubId: optionalStringBody(req.body.hubId),
-        status: vpnClientStatusBody(req.body.status),
-        enabled: booleanBody(req.body.enabled),
+        storePrivateKey: vpnClientCreationModeBody(req.body.creationMode) === "regular",
       }),
     );
   } catch (error) {
@@ -241,6 +251,22 @@ router.delete("/clients/id/:id", async (req, res) => {
   try {
     res.json(
       await deleteVpnClient({
+        id: req.params.id,
+        scopeIds: await getVisibleScopeIds(session),
+      }),
+    );
+  } catch (error) {
+    handleVpnError(res, error);
+  }
+});
+
+router.get("/clients/id/:id/config", async (req, res) => {
+  const session = await getSession(req, res);
+  if (!session) return;
+
+  try {
+    res.json(
+      await getVpnClientConfig({
         id: req.params.id,
         scopeIds: await getVisibleScopeIds(session),
       }),
@@ -330,6 +356,29 @@ router.post("/hub-status", async (req, res) => {
         publicKey: stringBody(req.body.publicKey),
       }),
     );
+  } catch (error) {
+    handleVpnError(res, error);
+  }
+});
+
+router.get("/search", async (req, res) => {
+  const session = await getSession(req, res);
+  if (!session) return;
+
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  if (!q) {
+    res.status(400).json({ error: "Search query (q) is required" });
+    return;
+  }
+
+  try {
+    const results = await searchVpnResources({
+      query: q,
+      scopeIds: await getVisibleScopeIds(session),
+    });
+
+    res.json({ results });
   } catch (error) {
     handleVpnError(res, error);
   }

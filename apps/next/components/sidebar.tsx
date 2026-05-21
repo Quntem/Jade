@@ -15,9 +15,9 @@ export function Sidebar({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean;
     // })
     return (
         <motion.div 
-            className="h-full w-[300px] bg-[#fafafa] shrink-0 border-r-1 border-[#e4e4e7]"
-            initial={{ width: sidebarOpen ? 300 : 0 }}
-            animate={{ width: sidebarOpen ? 300 : 0 }}
+            className="h-full w-[250px] bg-[#fafafa] shrink-0 border-r-1 border-[#e4e4e7]"
+            initial={{ width: sidebarOpen ? 250 : 0 }}
+            animate={{ width: sidebarOpen ? 250 : 0 }}
             exit={{ width: 0 }}
             transition={{ duration: 0.3 }}
         >   

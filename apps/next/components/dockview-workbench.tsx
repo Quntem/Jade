@@ -27,6 +27,7 @@ import { DeploymentProcessUi } from "./deployment/deploymentProcess";
 import { AccessTokens, createAccessToken } from "./servers/accessTokens";
 import { ServersPanel } from "./servers/ServersPanel";
 import { VpnPanel } from "./vpn/VPNPanel";
+import { createVpnClient } from "./vpn/create-client";
 
 
 const DOCKVIEW_LAYOUTS_STORAGE_KEY = "dockview-layouts";
@@ -98,7 +99,7 @@ export function addNewTab(api: DockviewApi, referenceGroup?: IDockviewHeaderActi
   api.addPanel({
     id: panelId,
     component: component,
-    title: "Untitled",
+    title: component === "servers" ? "Server Manager" : component === "vpn" ? "VPN Manager" : component == "vpn_client_create" ? "Create VPN Client" : component == "deploymentProcess" ? "Deployment Process" : component == "accessTokens_create" ? "Create Access Token" : "Untitled",
     tabComponent: "default",
     position: referenceGroup ? { referenceGroup } : undefined,
     params: params,
@@ -142,6 +143,9 @@ function NewTabButton({
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "vpn", { text: "VPN Tunnel", icon: "globe" })}>
           VPN
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => addNewTab(api, referenceGroup, "vpn_client_create", { text: "Create VPN Client", icon: "globe" })}>
+          Create VPN Client
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -190,6 +194,7 @@ const components = {
   deploymentProcess: DeploymentProcessUi,
   servers: ServersPanel,
   accessTokens_create: createAccessToken,
+  vpn_client_create: createVpnClient,
   vpn: VpnPanel,
 };
 

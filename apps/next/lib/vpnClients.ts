@@ -10,6 +10,8 @@ export type VpnClientStatus =
     | "Degraded"
     | "Disabled"
 
+export type VpnClientCreationMode = "secure" | "regular"
+
 export type VpnClientScopeSummary = {
     id: string
     name: string
@@ -28,8 +30,20 @@ export type VpnClient = {
     createdAt: string
     updatedAt: string
     deletedAt: string | null
+    privateKeyStored: boolean
     hub: VpnHubSummary
     scope: VpnClientScopeSummary
+}
+
+export type CreatedVpnClient = VpnClient & {
+    privateKey: string
+    renderedConfig: string
+    configFileName: string
+}
+
+export type VpnClientConfig = {
+    renderedConfig: string
+    configFileName: string
 }
 
 export type ListVpnClientsOptions = {
@@ -40,10 +54,7 @@ export type ListVpnClientsOptions = {
 export type CreateVpnClientInput = {
     scopeId: string
     name: string
-    publicKey: string
-    hubId?: string | null
-    status?: VpnClientStatus
-    enabled?: boolean
+    creationMode?: VpnClientCreationMode
 }
 
 export type UpdateVpnClientInput = {
@@ -149,11 +160,33 @@ export async function getVpnClient(id: string): Promise<VpnClient> {
 
 export async function createVpnClient(
     input: CreateVpnClientInput,
-): Promise<VpnClient> {
-    return fetchJson<VpnClient>("/api/v1/vpn/clients", {
+): Promise<CreatedVpnClient> {
+    return fetchJson<CreatedVpnClient>("/api/v1/vpn/clients", {
         method: "POST",
         body: JSON.stringify(input),
     })
+}
+
+export async function getVpnClientConfig(
+    id: string,
+): Promise<VpnClientConfig> {
+    return fetchJson<VpnClientConfig>(
+        `/api/v1/vpn/clients/id/${normalizeClientId(id)}/config`,
+    )
+}
+
+export function downloadVpnClientConfig(config: VpnClientConfig | null) {
+    if (!config || typeof window === "undefined") {
+        return
+    }
+
+    const blob = new Blob([config.renderedConfig], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = config.configFileName || "vpn-client.conf"
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
 export async function updateVpnClient(
@@ -254,8 +287,8 @@ export function useVpnClient(
     return { ...state, reload }
 }
 
-export function useCreateVpnClient(): MutationState<CreateVpnClientInput, VpnClient> {
-    const [data, setData] = useState<VpnClient | null>(null)
+export function useCreateVpnClient(): MutationState<CreateVpnClientInput, CreatedVpnClient> {
+    const [data, setData] = useState<CreatedVpnClient | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<Error | null>(null)
 

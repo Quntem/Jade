@@ -451,6 +451,7 @@ model VpnClient {
   name String
   tunnelIp String @unique
   publicKey String @unique
+  privateKey String?
   status VpnClientStatus @default(Ready)
   enabled Boolean @default(true)
 

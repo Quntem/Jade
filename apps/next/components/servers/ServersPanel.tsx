@@ -7,15 +7,15 @@ import { Servers } from "./servers";
 
 export function ServersPanel(props: IDockviewPanelProps) {
     const [tab, setTab] = useState<'servers' | 'access-tokens'>('servers');
-    useEffect(() => {
-        if (tab === 'access-tokens') {
-            props.api.updateParameters({ icon: "key" });
-            props.api.setTitle('Access Tokens');
-        } else {
-            props.api.updateParameters({ icon: "server" });
-            props.api.setTitle('Servers');
-        }
-    }, [tab]);
+    // useEffect(() => {
+    //     if (tab === 'access-tokens') {
+    //         props.api.updateParameters({ icon: "key" });
+    //         props.api.setTitle('Access Tokens');
+    //     } else {
+    //         props.api.updateParameters({ icon: "server" });
+    //         props.api.setTitle('Servers');
+    //     }
+    // }, [tab]);
     return <div className="flex-1 flex flex-col w-full h-full">
         <div className="flex flex-row p-4 border-b-1 border-b-[#e4e4e7] items-center gap-4">
             {tab === 'servers' ? <ServerIcon size={35} /> : <KeyIcon size={35} />}
@@ -23,7 +23,10 @@ export function ServersPanel(props: IDockviewPanelProps) {
                 <div className="text-lg text-[#666666]">
                     {tab === 'servers' ? 'Servers' : 'Access Tokens'}
                 </div>
-                <div className="text-sm text-[#999999]">{tab === 'servers' ? 'Servers' : 'Access Tokens'} Explorer</div>
+                <div className="text-sm text-[#999999]">
+                    {/* {tab === 'servers' ? 'Servers' : 'Access Tokens'} Explorer */}
+                    Server Manager
+                </div>
             </div>
         </div>
         <div className="flex-1 flex flex-row">
