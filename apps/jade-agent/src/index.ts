@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { hostname, machine, platform, type } from "node:os";
 import { dirname, join } from "node:path";
 import { io, type Socket } from "socket.io-client";
-import { createS3FilesClient, listS3Directory } from "../../resourcemanager/functions/storageexplorer";
+import { createS3FilesClient, listS3Directory } from "@jade/utils";
 import wireguardTools from "wireguard-tools.js";
 
 const DEFAULT_CONFIG_PATH = join(String(Bun.env.HOME ?? "."), ".jade", "agent.json");

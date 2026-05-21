@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@jade/utils": "workspace:*",
     "socket.io-client": "^4.8.3",
     "wireguard-tools.js": "^1.8.1"
   },
