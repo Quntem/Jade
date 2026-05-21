@@ -118,7 +118,7 @@ function buildInstallScript({
     "set -euo pipefail",
     `mkdir -p "${binDir}" "${dataDir}/logs" "${dataDir}/data"`,
     `export PATH="${binDir}:$PATH"`,
-    "if ! command -v weed >/dev/null 2>&1; then",
+    "if ! command -v weed >/dev/null 2>&1 || ! weed version >/dev/null 2>&1; then",
     `  case "${osName}" in`,
     "    linux) : ;;",
     "    *) echo \"Unsupported operating system for SeaweedFS bootstrap: ${osName}\" >&2; exit 1 ;;",
