@@ -28,6 +28,8 @@ import { AccessTokens, createAccessToken } from "./servers/accessTokens";
 import { ServersPanel } from "./servers/ServersPanel";
 import { VpnPanel } from "./vpn/VPNPanel";
 import { createVpnClient } from "./vpn/create-client";
+import { ResourcePanel } from "./resourcePanel";
+import { CreateResourcePanel } from "./createResource/createResourcePanel";
 
 
 const DOCKVIEW_LAYOUTS_STORAGE_KEY = "dockview-layouts";
@@ -41,6 +43,7 @@ const panelIcons = {
   key: KeyIcon,
   globe: GlobeIcon,
   settings: SettingsIcon,
+  plus: PlusIcon,
 };
 
 type PanelIconName = keyof typeof panelIcons;
@@ -196,6 +199,8 @@ const components = {
   accessTokens_create: createAccessToken,
   vpn_client_create: createVpnClient,
   vpn: VpnPanel,
+  ResourcePanel: ResourcePanel,
+  createResourcePanel: CreateResourcePanel
 };
 
 const tabComponents = {
@@ -352,8 +357,11 @@ function restoreScopeLayout(api: DockviewApi, scope: string | null) {
 }
 
 export function DockviewWorkbench({ sidebarOpen, setSidebarOpen }: { sidebarOpen: boolean; setSidebarOpen: (value: boolean) => void }) {
-  const { scope } = useAppContext();
+  const { scope, setDockViewApi } = useAppContext();
   const apiRef = useRef<DockviewApi | null>(null);
+  useEffect(() => {
+    setDockViewApi(apiRef.current);
+  }, [setDockViewApi]);
   const currentScopeRef = useRef(scope);
   const previousScopeRef = useRef(scope);
   const isRestoringLayoutRef = useRef(false);

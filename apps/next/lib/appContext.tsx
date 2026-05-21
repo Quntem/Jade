@@ -1,17 +1,22 @@
 import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, Command } from "@/components/ui/command"
 import { createContext, useContext, useEffect, useState } from "react"
 import { useSearchResources, type SearchResult } from "./servers"
+import { DockviewApi } from "dockview-react"
 
 export const AppContext = createContext<{
     scope: string | null
     setScope: (scope: string | null) => void
     commandOpen: boolean
     setCommandOpen: (open: boolean) => void
+    dockViewApi: DockviewApi | null
+    setDockViewApi: (api: DockviewApi | null) => void
 }>({
     scope: null,
     setScope: () => {},
     commandOpen: false,
     setCommandOpen: () => {},
+    dockViewApi: null,
+    setDockViewApi: () => {},
 })
 
 function getTypeLabel(type: SearchResult["type"]): string {
@@ -19,6 +24,8 @@ function getTypeLabel(type: SearchResult["type"]): string {
         vpn_client: "VPN Client",
         vpn_peer: "VPN Peer",
         server: "Server",
+        scope: "Scope",
+        resource: "Resource",
     }
     return labels[type]
 }
@@ -27,6 +34,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [scope, setScope] = useState<string | null>(
         typeof window !== "undefined" ? localStorage.getItem("scope") || null : null
     )
+    const [dockViewApi, setDockViewApi] = useState<DockviewApi | null>(null)
     const [commandOpen, setCommandOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState("")
     const { data: searchResults, loaded: searchLoaded } = useSearchResources(searchQuery, {
@@ -77,7 +85,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ) ?? {}
 
     return (
-        <AppContext.Provider value={{ scope, setScope: updateScope, commandOpen, setCommandOpen }}>
+        <AppContext.Provider value={{ scope, setScope: updateScope, commandOpen, setCommandOpen, dockViewApi, setDockViewApi }}>
             <CommandDialog className="top-[6px]" style={{
                 width: "35vw",
                 minWidth: "35vw",
@@ -117,6 +125,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                                                 value={`${result.type}:${result.id}`}
                                                 onSelect={() => {
                                                     console.log("Selected:", result)
+                                                    if (result.type === "scope") {
+                                                        setScope(result.scopeId)
+                                                    } else if (result.type === "resource") {
+                                                        // TODO: Navigate to resource
+                                                    }
+                                                    setCommandOpen(false)
                                                 }}
                                             >
                                                 <div className="flex flex-col gap-1">

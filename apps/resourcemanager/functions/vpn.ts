@@ -1670,7 +1670,7 @@ export async function searchVpnResources({
   query: string;
   scopeIds: string[];
 }): Promise<Array<{
-  type: "vpn_client" | "vpn_peer" | "server";
+  type: "vpn_client" | "vpn_peer" | "server" | "scope" | "resource";
   id: string;
   name: string;
   scopeId: string | null;
@@ -1681,9 +1681,7 @@ export async function searchVpnResources({
     return [];
   }
 
-  const searchTerm = `%${query.trim()}%`;
-
-  const [clients, peers, servers] = await Promise.all([
+  const [clients, peers, servers, scopes] = await Promise.all([
     prismaClient.vpnClient.findMany({
       where: {
         scopeId: { in: scopeIds },
@@ -1733,10 +1731,44 @@ export async function searchVpnResources({
       },
       take: 20,
     }),
+    prismaClient.resourceScope.findMany({
+      where: {
+        id: { in: scopeIds },
+        deletedAt: null,
+        name: { contains: query.trim(), mode: "insensitive" },
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+      take: 20,
+    }),
   ]);
 
+  let resources: Array<{ id: string; name: string; scopeId: string; type: string; phase: string }> = [];
+  try {
+    resources = await prismaClient.resource.findMany({
+      where: {
+        scopeId: { in: scopeIds },
+        deletedAt: null,
+        name: { contains: query.trim(), mode: "insensitive" },
+      },
+      select: {
+        id: true,
+        name: true,
+        scopeId: true,
+        type: true,
+        phase: true,
+      },
+      take: 20,
+    });
+  } catch (error) {
+    // Resource query failed, continue without resources
+    console.error("Resource search failed:", error);
+  }
+
   const results: Array<{
-    type: "vpn_client" | "vpn_peer" | "server";
+    type: "vpn_client" | "vpn_peer" | "server" | "scope" | "resource";
     id: string;
     name: string;
     scopeId: string | null;
@@ -1772,6 +1804,27 @@ export async function searchVpnResources({
       name: server.name,
       scopeId: server.scopeId,
       hubId: null,
+    });
+  });
+
+  scopes.forEach((scope) => {
+    results.push({
+      type: "scope",
+      id: scope.id,
+      name: scope.name,
+      scopeId: scope.id,
+      hubId: null,
+    });
+  });
+
+  resources.forEach((resource) => {
+    results.push({
+      type: "resource",
+      id: resource.id,
+      name: resource.name,
+      scopeId: resource.scopeId,
+      hubId: null,
+      status: String(resource.phase),
     });
   });
 

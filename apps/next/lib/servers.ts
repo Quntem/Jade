@@ -207,7 +207,7 @@ export async function getVpnConfig(serverId: string): Promise<SpokeVpnConfig> {
 }
 
 export type SearchResult = {
-    type: "vpn_client" | "vpn_peer" | "server"
+    type: "vpn_client" | "vpn_peer" | "server" | "scope" | "resource"
     id: string
     name: string
     scopeId: string | null
